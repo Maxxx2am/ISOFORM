@@ -1,56 +1,86 @@
-# Welcome to your Expo app 👋
+# ISO-FORM
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+Offline-first calisthenics coach. Live on-device pose tracking draws a skeleton
+on your body while you train, counts reps, calls out form faults, and on Stop
+replays your set with plain-language feedback. Minimalist true-black "isometric"
+design. Everything stays on the phone — no account, no network.
 
-## Get started
+## Status
 
-1. Install dependencies
+- ✅ **M0** Project setup, native deps, Dev Client / EAS config
+- ✅ **M1** Design system (true-black + selectable accent) + tab navigation
+- ✅ **M2** Skeleton overlay (Skia) — *runs on a mock pose source; real camera is the on-device finishing step, see [POSE_INTEGRATION.md](./POSE_INTEGRATION.md)*
+- ✅ **M3** Active workout screen + circular timer
+- ✅ **M4** Rep counting + form engine (squat, push-up, plank, lunge, glute bridge)
+- ✅ **M5** Replay + form report (video-aware; skeleton replay today)
+- ✅ **M6** Exercise library ("Learn")
+- ✅ **M7** Workout history (SQLite)
+- ✅ **M8** Settings (accent, coaching toggles)
+- ⏳ **M9** Performance pass (after real camera is wired)
 
-   ```bash
-   npm install
-   ```
+The whole flow is exercisable **today on a simulator** via the synthetic pose
+source (`src/pose/mockPose.ts`) — pick an exercise, watch the skeleton squat, see
+reps/cues, Stop, review the report. Swapping in the real camera is the one step
+that needs a physical device.
 
-2. Start the app
+## Run it
 
-   ```bash
-   npx expo start
-   ```
+### Free QR preview in Expo Go (works today, no build)
 
-In the output, you'll find options to open the app in a
+The storage + skeleton overlay use Expo-Go-friendly libraries (AsyncStorage +
+react-native-svg), and the camera runs on a **mock pose source**, so the whole
+UI runs in the free Expo Go app:
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
-
-```bash
-npm run reset-project
+```powershell
+npx expo start
+# Then scan the QR:
+#  - Android: open Expo Go → Scan QR code
+#  - iOS: open the Camera app → point at the QR → tap the Expo Go banner
+# If your phone can't connect (different network / firewall):
+npx expo start --tunnel
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+You get Train, Learn, the live mock-skeleton workout (timer, reps, form cues),
+Set Review, History, and Settings. The **real camera** is the only thing Expo Go
+can't do — that needs a Dev Client (below).
 
-### Other setup steps
+> PowerShell 5.1 has no `&&` — chain commands with `;` or use separate lines.
 
-- To set up ESLint for linting, run `npx expo lint`, or follow our guide on ["Using ESLint and Prettier"](https://docs.expo.dev/guides/using-eslint/)
-- If you'd like to set up unit testing, follow our guide on ["Unit Testing with Jest"](https://docs.expo.dev/develop/unit-testing/)
-- Learn more about the TypeScript setup in this template in our guide on ["Using TypeScript"](https://docs.expo.dev/guides/typescript/)
+### Real camera (Dev Client)
 
-## Learn more
+`react-native-vision-camera` is native and not in Expo Go — wire it on a Dev
+Client build (see [POSE_INTEGRATION.md](./POSE_INTEGRATION.md)):
 
-To learn more about developing your project with Expo, look at the following resources:
+```powershell
+# Windows can't build iOS locally (needs a Mac) — use EAS cloud:
+npx eas build --profile development --platform ios
+# Android locally (needs Android Studio + SDK + device/emulator):
+npx expo run:android
+```
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+## Architecture
 
-## Join the community
+```
+Camera frames ─▶ pose model ─▶ Landmark[] ─▶ SkeletonOverlay (Skia)
+                                    └────────▶ SessionEngine
+                                                 ├─ RepCounter (angle state machine)
+                                                 ├─ FormAnalyzer (debounced cues)
+                                                 └─ timeline (for replay)
+Stop ─▶ SessionSummary ─▶ review screen + SQLite history
+```
 
-Join our community of developers creating universal apps.
+- `src/theme/` — true-black palette, accents, typography, `useTheme`
+- `src/pose/` — landmark model, Skia overlay, mock source (real camera in `src/camera/`)
+- `src/engine/` — geometry, rep counter, form analyzer, session engine (pure TS)
+- `src/exercises/` — data-driven exercise definitions (angles + form rules)
+- `src/store/` — zustand (settings persisted via MMKV, session handoff)
+- `src/storage/` — MMKV key-value + SQLite history
+- `src/app/` — expo-router routes (tabs + workout + exercise detail)
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+## Notes
+
+- Runs on **Expo SDK 54** (RN 0.81.5, React 19.1.0) to match the Expo Go client.
+- Skia and MMKV were swapped for react-native-svg + AsyncStorage so the app runs
+  in Expo Go. VisionCamera / fast-tflite are not installed yet — add them when
+  wiring the real camera on a Dev Client. See [POSE_INTEGRATION.md](./POSE_INTEGRATION.md)
+  (VisionCamera 4 recommended for the documented frame-processor pose pipeline).

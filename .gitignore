@@ -41,3 +41,10 @@ example
 # generated native folders
 /ios
 /android
+
+# ISO-FORM
+assets/models/*.tflite
+assets/models/*.task
+dist-check/
+cfg.tmp.json
+expo-server.log
