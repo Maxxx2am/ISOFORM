@@ -12,7 +12,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.maxxxdev.isoform",
-      "buildNumber": "15",
+      "buildNumber": "17",
       "infoPlist": {
         "UIViewControllerBasedStatusBarAppearance": true,
         "NSCameraUsageDescription": "ISOFORM uses the camera to track your body and check your exercise form on-device. Nothing leaves your phone.",
