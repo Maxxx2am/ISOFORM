@@ -1,0 +1,118 @@
+{
+  "version": 1,
+  "changelog": [
+    {
+      "version": 1,
+      "date": "2026-07-29",
+      "title": "Counting thresholds relaxed across all exercises",
+      "body": "Rep counting is now more forgiving — you don't need to hit absolute full range for a rep to register. Form cues still nudge you toward full range. Every exercise got more breathing room."
+    }
+  ],
+  "overrides": {
+    "pushup": {
+      "rep": { "downBelow": 110, "upAbove": 148 },
+      "gauge": { "downBelow": 110, "upAbove": 148 }
+    },
+    "pullup": {
+      "rep": { "downBelow": 105, "upAbove": 140 },
+      "gauge": { "downBelow": 105, "upAbove": 140 }
+    },
+    "l-sit": {
+      "hold": { "minOk": 45, "maxOk": 135 },
+      "gauge": { "downBelow": 45, "upAbove": 135 }
+    },
+    "plank": {
+      "hold": { "minOk": 150, "maxOk": 180 },
+      "gauge": { "downBelow": 150, "upAbove": 180 }
+    },
+    "squat": {
+      "rep": { "downBelow": 115, "upAbove": 148 },
+      "gauge": { "downBelow": 115, "upAbove": 148 }
+    },
+    "dip": {
+      "rep": { "downBelow": 115, "upAbove": 148 },
+      "gauge": { "downBelow": 115, "upAbove": 148 }
+    },
+    "handstand": {
+      "hold": { "minOk": 40, "maxOk": 180 },
+      "gauge": { "downBelow": 40, "upAbove": 180 }
+    },
+    "tuck-planche": {
+      "hold": { "minOk": 0, "maxOk": 115 },
+      "gauge": { "downBelow": 0, "upAbove": 115 }
+    },
+    "adv-tuck-planche": {
+      "hold": { "minOk": 50, "maxOk": 155 },
+      "gauge": { "downBelow": 50, "upAbove": 155 }
+    },
+    "planche": {
+      "hold": { "minOk": 110, "maxOk": 180 },
+      "gauge": { "downBelow": 110, "upAbove": 180 }
+    },
+    "tuck-front-lever": {
+      "hold": { "minOk": 5, "maxOk": 95 },
+      "gauge": { "downBelow": 5, "upAbove": 95 }
+    },
+    "adv-tuck-front-lever": {
+      "hold": { "minOk": 35, "maxOk": 140 },
+      "gauge": { "downBelow": 35, "upAbove": 140 }
+    },
+    "front-lever": {
+      "hold": { "minOk": 110, "maxOk": 180 },
+      "gauge": { "downBelow": 110, "upAbove": 180 }
+    },
+    "hespu": {
+      "rep": { "downBelow": 115, "upAbove": 148 },
+      "gauge": { "downBelow": 115, "upAbove": 148 }
+    },
+    "90deg-hold": {
+      "hold": { "minOk": 30, "maxOk": 130 },
+      "gauge": { "downBelow": 30, "upAbove": 130 }
+    },
+    "l-to-v-raises": {
+      "rep": { "downBelow": 75, "upAbove": 100 },
+      "gauge": { "downBelow": 75, "upAbove": 100 }
+    },
+    "v-sit": {
+      "hold": { "minOk": 20, "maxOk": 80 },
+      "gauge": { "downBelow": 20, "upAbove": 80 }
+    },
+    "pistol": {
+      "rep": { "downBelow": 110, "upAbove": 148 },
+      "gauge": { "downBelow": 110, "upAbove": 148 }
+    },
+    "hanging-knee-raise": {
+      "rep": { "downBelow": 70, "upAbove": 145 },
+      "gauge": { "downBelow": 70, "upAbove": 145 }
+    },
+    "muscle-up": {
+      "rep": { "downBelow": 95, "upAbove": 148 },
+      "gauge": { "downBelow": 95, "upAbove": 148 }
+    },
+    "wall-sit": {
+      "hold": { "minOk": 50, "maxOk": 120 },
+      "gauge": { "downBelow": 50, "upAbove": 120 }
+    },
+    "jump-squat": {
+      "rep": { "downBelow": 115, "upAbove": 130 },
+      "gauge": { "downBelow": 115, "upAbove": 130 }
+    },
+    "superman-hold": {
+      "hold": { "minOk": 120, "maxOk": 175 },
+      "gauge": { "downBelow": 120, "upAbove": 175 }
+    },
+    "leg-raise": {
+      "rep": { "downBelow": 110, "upAbove": 150 },
+      "gauge": { "downBelow": 110, "upAbove": 150 }
+    },
+    "jumping-jack": {
+      "rep": { "downBelow": 80, "upAbove": 130 },
+      "gauge": { "downBelow": 80, "upAbove": 130 }
+    },
+    "mountain-climbers": {
+      "rep": { "downBelow": 90, "upAbove": 140 },
+      "gauge": { "downBelow": 90, "upAbove": 140 }
+    }
+  },
+  "additions": []
+}
