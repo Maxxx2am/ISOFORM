@@ -1,6 +1,12 @@
 {
-  "version": 1,
+  "version": 2,
   "changelog": [
+    {
+      "version": 2,
+      "date": "2026-07-29",
+      "title": "Counting thresholds relaxed",
+      "body": "- Squat: less depth + less lockout needed to count a rep\n- Push-up: don't need chest-to-floor or full arm lockout\n- Pull-up: more forgiving at both bottom and top\n- Dip: easier depth and lockout thresholds\n- Jump squat: small hop counts now, no need to jump high\n- Pistol squat: wider range, less strict on depth and lockout\n- HSPU: relaxed elbow thresholds at both ends\n- L-Sit → V raises: wider hip window\n- All planche/front-lever holds: more forgiving minimum angles\n- Wall sit / Superman hold: wider hold window\n- Leg raise / Hanging knee raise: relaxed range\n- Jumping jacks / Mountain climbers: more breathing room"
+    },
     {
       "version": 1,
       "date": "2026-07-29",

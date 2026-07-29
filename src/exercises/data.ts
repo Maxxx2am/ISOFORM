@@ -8,7 +8,38 @@ function verticalDeviation(a: Landmark, b: Landmark): number | null {
   return Math.abs(Math.abs(segmentAngle(a, b)) - 90);
 }
 
-/** y of a left/right pair using whichever side(s) the camera can see. */
+/**
+ * Per-frame memoization for a single-argument geometry helper keyed on the
+ * landmarks array's own identity — `landmarks` is a fresh array every frame
+ * (see LandmarkSmoother.smooth()), so caching by reference naturally expires
+ * every frame on its own without any explicit invalidation, while still
+ * de-duplicating the SAME call made by multiple formRules within one frame.
+ * Several exercises now have 8-10 rules, and quite a few call the exact same
+ * helper with the exact same landmarks (e.g. plank's two "elbows stacked"
+ * rules both call `stackOffset(landmarks, LeftElbow, RightElbow)`, and most
+ * exercises with a 'shrug' rule plus a 'legs-apart'/'knees-apart' rule both
+ * end up computing torsoScale independently) — this was measured, not
+ * assumed: shoulderWidth/torsoScale/shrugGap/stackOffset/hipLineDeviation
+ * are each called 4-30 times across the file, several times per exercise
+ * per frame.
+ */
+function memo1<T>(fn: (lms: Landmark[]) => T): (lms: Landmark[]) => T {
+  let lastLms: Landmark[] | null = null;
+  let lastValue: T | undefined;
+  return (lms: Landmark[]): T => {
+    if (lms !== lastLms) {
+      lastLms = lms;
+      lastValue = fn(lms);
+    }
+    return lastValue as T;
+  };
+}
+
+/** y of a left/right pair using whichever side(s) the camera can see.
+ *  Threshold at 0.5 for angle/form computations (where precision matters);
+ *  gates use 0.3 below via a separate variant — a gate should only say "no"
+ *  when it can CONFIRM you're not doing the move, never because a single
+ *  landmark flickered at a weird angle. */
 function pairY(lms: Landmark[], l: L, r: L, mode: 'avg' | 'min' = 'avg'): number | null {
   const pts = [lms[l], lms[r]].filter((p) => (p?.visibility ?? 0) >= 0.5);
   if (pts.length === 0) return null;
@@ -16,55 +47,101 @@ function pairY(lms: Landmark[], l: L, r: L, mode: 'avg' | 'min' = 'avg'): number
   return pts.reduce((s, p) => s + p.y, 0) / pts.length;
 }
 
+/** Gate-friendly variant: lower threshold (0.3) so a slightly-occluded limb
+ * from bad form still passes. Gates answer "is this the right exercise?" —
+ * they should fail open, not fail closed on a visibility flicker. */
+function pairYGate(lms: Landmark[], l: L, r: L, mode: 'avg' | 'min' = 'avg'): number | null {
+  const pts = [lms[l], lms[r]].filter((p) => (p?.visibility ?? 0) >= 0.3);
+  if (pts.length === 0) return null;
+  if (mode === 'min') return Math.min(...pts.map((p) => p.y));
+  return pts.reduce((s, p) => s + p.y, 0) / pts.length;
+}
+
+/** Distance between the shoulders on screen — a person-size reference for
+ * front-view exercises (side-view moves use torsoScale/hipLineDeviation
+ * instead, since a front-on shoulder width and a profile one aren't
+ * comparable scales). */
+const shoulderWidth = memo1((lms: Landmark[]): number | null => {
+  const ls = lms[L.LeftShoulder];
+  const rs = lms[L.RightShoulder];
+  if (!ls || !rs || ls.visibility < 0.5 || rs.visibility < 0.5) return null;
+  return Math.abs(ls.x - rs.x);
+});
+
 /**
- * Clearly upside-down (side view, one visible side is enough): feet AND hips
- * above the shoulders — two independent signals, so standing can never pass.
+ * Clearly upside-down (side view, one visible side is enough): feet above
+ * the shoulders. That's the only reliable signal — a banana arch, deeply
+ * bent knees, or a tuck all keep feet above shoulders. Hips can drop below
+ * shoulders in a severe arch, so hip position is NOT part of this gate.
+ * Form rules + the gauge handle quality separately.
  */
 function isInverted(lms: Landmark[]): boolean {
-  const ankle = pairY(lms, L.LeftAnkle, L.RightAnkle, 'min');
-  const hip = pairY(lms, L.LeftHip, L.RightHip);
-  const shoulder = pairY(lms, L.LeftShoulder, L.RightShoulder);
-  if (ankle == null || hip == null || shoulder == null) return false;
-  return ankle < shoulder - 0.06 && hip < shoulder - 0.02;
+  const ankle = pairYGate(lms, L.LeftAnkle, L.RightAnkle, 'min');
+  const shoulder = pairYGate(lms, L.LeftShoulder, L.RightShoulder);
+  if (ankle == null || shoulder == null) return false;
+  return ankle < shoulder + 0.03;
 }
 
 /**
- * Ground-work gate (push-ups): "confirmed on the floor". Standing puts the hips
- * FAR below the shoulders on screen; on the floor they're at similar heights.
- * Can't see the hips → nothing counts (walking to the camera hides them).
+ * Ground-work gate (push-ups): "confirmed on the floor". On the floor the
+ * hips sit at nearly the same on-screen height as the shoulders (facing the
+ * camera the torso is foreshortened almost to nothing; from the side it runs
+ * horizontally); standing drops them far below. The old check compared that
+ * drop against a FIXED fraction of the frame (0.3) — but how big "standing"
+ * reads on screen depends entirely on distance from the camera, and a full
+ * body framed at 2-3m has a standing drop of only ~0.25, which PASSED as
+ * "prone" and let standing arm curls drive the rep pipeline (device-
+ * reported). Scale-invariant fix: measure the drop against the person's own
+ * on-screen shoulder width — standing torso length is well over shoulder
+ * width at any distance; a foreshortened/horizontal torso never is.
  * This ONLY decides "are you doing this move at all" — form quality (sagging,
  * piking, depth) is judged separately by formRules/hold windows so a scruffy
  * rep still gets scanned and coached instead of silently not counting.
  */
 function isProne(lms: Landmark[]): boolean {
-  const hip = pairY(lms, L.LeftHip, L.RightHip);
-  const shoulder = pairY(lms, L.LeftShoulder, L.RightShoulder);
+  const hip = pairYGate(lms, L.LeftHip, L.RightHip);
+  const shoulder = pairYGate(lms, L.LeftShoulder, L.RightShoulder);
   if (hip == null || shoulder == null) return false;
-  return hip - shoulder < 0.3;
-}
-
-/** Pike posture: hips at or above shoulder height (standing puts them well below). */
-function isPiked(lms: Landmark[]): boolean {
-  const hip = pairY(lms, L.LeftHip, L.RightHip);
-  const shoulder = pairY(lms, L.LeftShoulder, L.RightShoulder);
-  if (hip == null || shoulder == null) return false;
-  return hip < shoulder + 0.16;
+  const drop = Math.abs(hip - shoulder);
+  const ls = lms[L.LeftShoulder];
+  const rs = lms[L.RightShoulder];
+  const shoulderW =
+    (ls?.visibility ?? 0) >= 0.3 && (rs?.visibility ?? 0) >= 0.3 ? Math.abs(ls.x - rs.x) : null;
+  const limit = Math.max(0.1, Math.min(0.18, shoulderW != null ? shoulderW * 0.9 : 0.18));
+  return drop < limit;
 }
 
 /** On the bar: both wrists clearly above the shoulders (hanging). */
 function isHangingOnBar(lms: Landmark[]): boolean {
-  const wrist = pairY(lms, L.LeftWrist, L.RightWrist, 'min');
-  const shoulder = pairY(lms, L.LeftShoulder, L.RightShoulder);
+  const wrist = pairYGate(lms, L.LeftWrist, L.RightWrist, 'min');
+  const shoulder = pairYGate(lms, L.LeftShoulder, L.RightShoulder);
   if (wrist == null || shoulder == null) return false;
-  return wrist < shoulder - 0.08;
+  return wrist < shoulder - 0.06;
 }
 
-/** Feet off the floor (L-sit): ankles above the hands. */
-function feetOffFloor(lms: Landmark[], margin = 0.02): boolean {
-  const handY = pairY(lms, L.LeftWrist, L.RightWrist);
-  const footY = pairY(lms, L.LeftAnkle, L.RightAnkle, 'min') ?? pairY(lms, L.LeftKnee, L.RightKnee, 'min');
+/** Feet off the floor (L-sit): ankles above the hands.
+ *  Margin raised from 0.02 to 0.03 — at 0.02, a single-frame MediaPipe
+ *  jitter (~1-3% of bounding box per model docs) could flip between "feet
+ *  off floor" and not, resetting the L-sit/V-sit hold clock. */
+function feetOffFloor(lms: Landmark[], margin = 0.03): boolean {
+  const handY = pairYGate(lms, L.LeftWrist, L.RightWrist);
+  const footY = pairYGate(lms, L.LeftAnkle, L.RightAnkle, 'min') ?? pairYGate(lms, L.LeftKnee, L.RightKnee, 'min');
   if (handY == null || footY == null) return false;
   return footY < handY - margin;
+}
+
+/**
+ * L-sit/V-sit gate refinement (B12): `feetOffFloor` alone also passes lying
+ * flat on your back with your legs raised, or sitting on a chair with hands
+ * down — neither is the exercise. A real L-sit/V-sit sits UP on a support
+ * (hands on the floor/parallettes), which puts the shoulders clearly above
+ * the hips; lying flat keeps them at roughly the same height.
+ */
+function isSeatedSupport(lms: Landmark[]): boolean {
+  const shoulder = pairYGate(lms, L.LeftShoulder, L.RightShoulder);
+  const hip = pairYGate(lms, L.LeftHip, L.RightHip);
+  if (shoulder == null || hip == null) return false;
+  return shoulder < hip - 0.03;
 }
 
 const STANDING = [L.LeftShoulder, L.RightShoulder, L.LeftHip, L.RightHip, L.LeftKnee, L.RightKnee, L.LeftAnkle, L.RightAnkle];
@@ -85,39 +162,211 @@ const BODYLINE = (lms: Landmark[]) => ({
 });
 const ELBOW_AND_BODYLINE = (lms: Landmark[]) => ({ ...ELBOW(lms), ...BODYLINE(lms) });
 const HIP_AND_KNEE = (lms: Landmark[]) => ({ ...HIP(lms), ...KNEE(lms) });
+const BODYLINE_AND_KNEE = (lms: Landmark[]) => ({ ...BODYLINE(lms), ...KNEE(lms) });
 
-const PUSH_REP = { angle: 'elbow', downBelow: 95, upAbove: 155 } as const;
-const PULL_REP = { angle: 'elbow', downBelow: 95, upAbove: 145 } as const;
+/**
+ * ─── KEEP IN SYNC WITH exercises.json ───
+ * Every time you change a rep/hold threshold here, update the matching
+ * entry in exercises.json too (at the repo root). The JSON is what users
+ * actually run — it's fetched on launch and persisted to disk, so it
+ * survives app restarts. The compiled constants below are only the FALLBACK:
+ * they kick in on first install (before the first fetch), after a data
+ * wipe, or if the GitHub fetch fails.
+ *
+ * Bump exercises.json's "version" number when you change anything so the
+ * Settings widget shows a green "new" dot and the changelog entry surfaces.
+ *
+ * Changelog format in exercises.json: short title, then bullet points
+ * (use "- " prefix) — one per exercise family, most important first.
+ */
+const PUSH_REP = { angle: 'elbow', downBelow: 110, upAbove: 148 } as const;
+const PULL_REP = { angle: 'elbow', downBelow: 105, upAbove: 140 } as const;
+
+/** Knees confirmed off the floor: both knees above a minimum screen height.
+ * Returns true when it CAN confirm they're up; returns true also when knees
+ * aren't visible enough to judge (never rejects on missing data alone). */
+function kneesOffFloor(lms: Landmark[], floorY = 0.78): boolean {
+  const lk = lms[L.LeftKnee]; const rk = lms[L.RightKnee];
+  if (!lk && !rk) return true;
+  const lUp = lk && lk.visibility >= 0.4 ? lk.y < floorY : null;
+  const rUp = rk && rk.visibility >= 0.4 ? rk.y < floorY : null;
+  if (lUp === false || rUp === false) return false;
+  return true;
+}
 
 /** Hands on the floor: wrists low in frame (side view ground contact). */
 function handsOnFloor(lms: Landmark[]): boolean {
-  const wrist = pairY(lms, L.LeftWrist, L.RightWrist, 'min');
+  const wrist = pairYGate(lms, L.LeftWrist, L.RightWrist, 'min');
   return wrist != null && wrist > 0.6;
 }
 
 /** Body roughly horizontal (side view): shoulders and hips at similar y. */
 function isHorizontal(lms: Landmark[], margin = 0.18): boolean {
-  const hip = pairY(lms, L.LeftHip, L.RightHip);
-  const shoulder = pairY(lms, L.LeftShoulder, L.RightShoulder);
+  const hip = pairYGate(lms, L.LeftHip, L.RightHip);
+  const shoulder = pairYGate(lms, L.LeftShoulder, L.RightShoulder);
   if (hip == null || shoulder == null) return false;
   return Math.abs(hip - shoulder) < margin;
+}
+
+/**
+ * Signed hip deviation from the shoulder→ankle line (side view): positive =
+ * hip sits above the line on screen (piked), negative = below (sagging).
+ * `jointAngle()`/`symmetricAngle()` alone can't distinguish these — a pike
+ * and a sag bend the shoulder-hip-ankle joint the same unsigned direction —
+ * so a pike-specific cue (e.g. plank's `piked` rule) needs this direct
+ * geometry check instead.
+ */
+const hipLineDeviation = memo1((lms: Landmark[]): number | null => {
+  const side = (s: L, h: L, a: L) => {
+    const sh = lms[s]; const hp = lms[h]; const ak = lms[a];
+    if (!sh || !hp || !ak) return null;
+    if (sh.visibility < 0.5 || hp.visibility < 0.5 || ak.visibility < 0.5) return null;
+    const dx = ak.x - sh.x;
+    if (Math.abs(dx) < 1e-4) return null;
+    const lineY = sh.y + ((hp.x - sh.x) / dx) * (ak.y - sh.y);
+    return lineY - hp.y; // positive when the hip is higher on screen than the line
+  };
+  return side(L.LeftShoulder, L.LeftHip, L.LeftAnkle) ?? side(L.RightShoulder, L.RightHip, L.RightAnkle);
+});
+
+/** Shoulder-to-hip segment length (whichever side is visible) — a
+ * person-size reference for turning a screen-space offset into a fraction of
+ * the athlete's own scale, so the same threshold works close to or far from
+ * the camera (same reasoning as isProne's shoulder-width scaling). */
+const torsoScale = memo1((lms: Landmark[]): number | null => {
+  const seg = (sh: L, hp: L) => {
+    const s = lms[sh]; const h = lms[hp];
+    if (!s || !h || s.visibility < 0.5 || h.visibility < 0.5) return null;
+    return Math.hypot(s.x - h.x, s.y - h.y);
+  };
+  return seg(L.LeftShoulder, L.LeftHip) ?? seg(L.RightShoulder, L.RightHip);
+});
+
+/** Ear-to-shoulder vertical gap (whichever side is visible), as a fraction
+ * of torso scale. POSITIVE and large when relaxed (ear well above the
+ * shoulder, since y increases downward) — shrinks toward 0 as the shoulder
+ * rises up toward the ear (shrugging). A real fault a plain "shoulder near
+ * the nose" check can't reliably see (the nose moves with head tilt, not
+ * shoulder position). */
+const shrugGap = memo1((lms: Landmark[]): number | null => {
+  const scale = torsoScale(lms);
+  if (scale == null || scale < 1e-4) return null;
+  const gap = (ear: L, shoulder: L) => {
+    const e = lms[ear]; const s = lms[shoulder];
+    if (!e || !s || e.visibility < 0.5 || s.visibility < 0.5) return null;
+    return (s.y - e.y) / scale;
+  };
+  return gap(L.LeftEar, L.LeftShoulder) ?? gap(L.RightEar, L.RightShoulder);
+});
+
+/** How far a joint sits from being stacked directly under its shoulder
+ * (whichever side is visible), as a fraction of torso scale. Direction-
+ * agnostic on purpose — a side-view athlete can face either way on screen,
+ * so "forward" vs "back" isn't reliably labelable, but "not stacked" is.
+ * Memoized on (landmarks, jointLeft, jointRight) together — several
+ * exercises call this twice per frame with the identical joint pair (e.g.
+ * plank's two "elbows stacked" rules), always from adjacent formRules, so a
+ * single-slot cache (not a full multi-key map) is enough to de-duplicate it. */
+function stackOffsetImpl(lms: Landmark[], jointLeft: L, jointRight: L): number | null {
+  const scale = torsoScale(lms);
+  if (scale == null || scale < 1e-4) return null;
+  const off = (j: L, sh: L) => {
+    const jj = lms[j]; const s = lms[sh];
+    if (!jj || !s || jj.visibility < 0.5 || s.visibility < 0.5) return null;
+    return Math.abs(jj.x - s.x) / scale;
+  };
+  return off(jointLeft, L.LeftShoulder) ?? off(jointRight, L.RightShoulder);
+}
+let stackOffsetLastLms: Landmark[] | null = null;
+let stackOffsetLastLeft: L | null = null;
+let stackOffsetLastRight: L | null = null;
+let stackOffsetLastValue: number | null = null;
+function stackOffset(lms: Landmark[], jointLeft: L, jointRight: L): number | null {
+  if (lms === stackOffsetLastLms && jointLeft === stackOffsetLastLeft && jointRight === stackOffsetLastRight) {
+    return stackOffsetLastValue;
+  }
+  stackOffsetLastLms = lms;
+  stackOffsetLastLeft = jointLeft;
+  stackOffsetLastRight = jointRight;
+  stackOffsetLastValue = stackOffsetImpl(lms, jointLeft, jointRight);
+  return stackOffsetLastValue;
+}
+
+/** Superman hold gate: wrists and knees must be above a floor line — confirms
+ * the athlete is actually lifting their limbs off the ground, not just laying
+ * flat face-down. Returns true when it CAN confirm lift on at least one side;
+ * returns true also when landmarks aren't visible enough to judge (never
+ * rejects on missing data alone — the angle window handles the rest). */
+function wristsKneesOffFloor(lms: Landmark[], floorY = 0.75): boolean {
+  const lw = lms[L.LeftWrist]; const rw = lms[L.RightWrist];
+  const lk = lms[L.LeftKnee]; const rk = lms[L.RightKnee];
+  // At least one limb pair must be confidently ABOVE the floor.
+  const wristUp = (lw && lw.visibility >= 0.4 && lw.y < floorY) || (rw && rw.visibility >= 0.4 && rw.y < floorY);
+  const kneeUp = (lk && lk.visibility >= 0.4 && lk.y < floorY) || (rk && rk.visibility >= 0.4 && rk.y < floorY);
+  // If we can see limbs and they're ALL on the floor, reject.
+  const wristVisible = (lw && lw.visibility >= 0.4) || (rw && rw.visibility >= 0.4);
+  const kneeVisible = (lk && lk.visibility >= 0.4) || (rk && rk.visibility >= 0.4);
+  if ((wristVisible && !wristUp) || (kneeVisible && !kneeUp)) return false;
+  return true;
 }
 
 /** Planche gate: hands on floor + body roughly horizontal + knees/feet off the floor. */
 function isInPlanche(lms: Landmark[]): boolean {
   if (!handsOnFloor(lms) || !isHorizontal(lms)) return false;
-  const knee = pairY(lms, L.LeftKnee, L.RightKnee, 'min');
-  const wrist = pairY(lms, L.LeftWrist, L.RightWrist, 'min');
+  const knee = pairYGate(lms, L.LeftKnee, L.RightKnee, 'min');
+  const wrist = pairYGate(lms, L.LeftWrist, L.RightWrist, 'min');
   if (knee == null || wrist == null) return false;
-  return knee < wrist - 0.04; // knees above wrists = floating
+  return knee < wrist - 0.02;
 }
 
-/** One-leg-forward gate for pistol squat: one ankle well above the other. */
+/** One-leg-forward gate for pistol squat: one ankle well above the other.
+ *  Same side-view visibility fix as feetPlanted — requiring BOTH ankles at
+ *  0.5 visibility silently disabled the pistol gate for anyone whose far
+ *  ankle dipped below threshold. Now: if only one ankle is clearly visible,
+ *  pass (can't verify forward-leg stance, but also can't safely reject —
+ *  the secondary gate check, `knee < 155`, already confirms deep squat form). */
 function oneLegForward(lms: Landmark[]): boolean {
   const la = lms[L.LeftAnkle]; const ra = lms[L.RightAnkle];
   if (!la || !ra) return false;
-  if (la.visibility < 0.5 || ra.visibility < 0.5) return false;
-  return Math.abs(la.y - ra.y) > 0.08;
+  const lv = la.visibility >= 0.3;
+  const rv = ra.visibility >= 0.3;
+  if (!lv && !rv) return false;
+  if (!lv || !rv) return true;
+  return Math.abs(la.y - ra.y) > 0.06;
+}
+
+/** Pistol squat sides: the LOWER ankle on screen (larger y) is the one still
+ *  on the ground — the support leg. The other is the extended leg. Returns
+ *  null when it can't be told apart (both ankles missing or roughly level).
+ *  Only requires ONE visible ankle — from a side view the far ankle is
+ *  naturally occluded, so returning null here would silently disable heel-lift
+ *  and knee-forward coaching cues for anyone whose far side dips below 0.5. */
+function pistolSupportSide(lms: Landmark[]): { hip: L; knee: L; ankle: L; heel: L; footIndex: L } | null {
+  const la = lms[L.LeftAnkle]; const ra = lms[L.RightAnkle];
+  if (!la || !ra) return null;
+  const lv = la.visibility >= 0.3;
+  const rv = ra.visibility >= 0.3;
+  // Both clearly visible: pick the lower one (on the ground)
+  if (lv && rv) {
+    if (la.y > ra.y) return { hip: L.LeftHip, knee: L.LeftKnee, ankle: L.LeftAnkle, heel: L.LeftHeel, footIndex: L.LeftFootIndex };
+    if (ra.y > la.y) return { hip: L.RightHip, knee: L.RightKnee, ankle: L.RightAnkle, heel: L.RightHeel, footIndex: L.RightFootIndex };
+    return null;
+  }
+  // Only one side visible — return whichever is visible as the support leg
+  if (lv) return { hip: L.LeftHip, knee: L.LeftKnee, ankle: L.LeftAnkle, heel: L.LeftHeel, footIndex: L.LeftFootIndex };
+  if (rv) return { hip: L.RightHip, knee: L.RightKnee, ankle: L.RightAnkle, heel: L.RightHeel, footIndex: L.RightFootIndex };
+  return null;
+}
+
+/** Heel rising off the ground, as a fraction of torso scale — the toe
+ * (footIndex) stays planted while the heel comes up well past what natural
+ * foot-arch geometry accounts for. Returns null (never a fault) when either
+ * point isn't visible enough to judge. */
+function heelLifted(lms: Landmark[], heel: L, footIndex: L): boolean | null {
+  const scale = torsoScale(lms);
+  const h = lms[heel]; const f = lms[footIndex];
+  if (scale == null || scale < 1e-4 || !h || !f || h.visibility < 0.5 || f.visibility < 0.5) return null;
+  return (f.y - h.y) / scale > 0.15;
 }
 
 /**
@@ -128,62 +377,160 @@ function oneLegForward(lms: Landmark[]): boolean {
  * separates the ankles in x — and that stride, not a real squat, was what
  * was tripping the knee angle through the rep thresholds and counting a
  * phantom rep while the user got into position.
+ *
+ * Side-view filming (e.g. squat, pistol) naturally occludes the far ankle —
+ * requiring BOTH at 0.5 visibility silently disabled tracking for every user
+ * whose far-side ankle dipped below that. Now: if only one ankle is clearly
+ * visible, pass (can't verify spread, but also can't reject). Only reject
+ * when BOTH are confidently visible AND clearly far apart in x — a genuine
+ * mid-stride or staggered stance the camera CAN actually see.
  */
 function feetPlanted(lms: Landmark[], marginX = 0.15): boolean {
   const la = lms[L.LeftAnkle]; const ra = lms[L.RightAnkle];
   if (!la || !ra) return false;
-  if (la.visibility < 0.5 || ra.visibility < 0.5) return false;
+  const lv = la.visibility >= 0.3;
+  const rv = ra.visibility >= 0.3;
+  if (!lv && !rv) return false;
+  if (!lv || !rv) return true;
   return Math.abs(la.x - ra.x) < marginX;
 }
 
-/** Hands close together (front view) — for diamond push-up vs regular push-up. */
-function handsTogether(lms: Landmark[]): boolean {
-  const lw = lms[L.LeftWrist]; const rw = lms[L.RightWrist];
-  if (!lw || !rw) return false;
-  if (lw.visibility < 0.5 || rw.visibility < 0.5) return false;
-  return Math.abs(lw.x - rw.x) < 0.12;
+/**
+ * Both knees bending together, within a tolerance — a real two-footed squat
+ * moves symmetrically; sitting sideways in a chair, a lunge, or a single-leg
+ * movement doesn't. Only used alongside feetPlanted (B10) — on its own this
+ * would also need to reject mid-stride walking, which feetPlanted already
+ * handles. Returns true (don't block) when only one knee is visible — a
+ * single visible leg can't disagree with itself.
+ */
+function kneesSymmetric(lms: Landmark[], toleranceDeg = 25): boolean {
+  const lOk = allVisible(lms, [L.LeftHip, L.LeftKnee, L.LeftAnkle], 0.3);
+  const rOk = allVisible(lms, [L.RightHip, L.RightKnee, L.RightAnkle], 0.3);
+  if (!lOk || !rOk) return true;
+  const left = jointAngle(lms[L.LeftHip], lms[L.LeftKnee], lms[L.LeftAnkle]);
+  const right = jointAngle(lms[L.RightHip], lms[L.RightKnee], lms[L.RightAnkle]);
+  return Math.abs(left - right) < toleranceDeg;
 }
 
-/** Cross-back below the bar (muscle-up transition negative): shoulders below wrists after coming over. */
-function belowBar(lms: Landmark[]): boolean {
-  const shoulder = pairY(lms, L.LeftShoulder, L.RightShoulder);
-  const wrist = pairY(lms, L.LeftWrist, L.RightWrist);
-  if (shoulder == null || wrist == null) return false;
-  return shoulder > wrist + 0.05;
+/** Torso lean off vertical, trying whichever side is visible. */
+function torsoLeanDeg(lms: Landmark[]): number | null {
+  return verticalDeviation(lms[L.LeftShoulder], lms[L.LeftHip]) ?? verticalDeviation(lms[L.RightShoulder], lms[L.RightHip]);
+}
+
+/**
+ * Real wall sit: knees bent like sitting AND the torso stays upright (back
+ * flat against the wall). Just hinging forward at the hips ("bending over")
+ * also bends the knees a little, but tips the torso well off vertical —
+ * that's the signal that tells the two apart.
+ */
+function isWallSitting(lms: Landmark[]): boolean {
+  const lean = torsoLeanDeg(lms);
+  const knee = minKnee(lms);
+  if (lean == null || knee == null) return false;
+  return lean < 25 && knee < 120;
 }
 
 const ELBOW_HIP = (lms: Landmark[]) => ({ ...ELBOW(lms), ...HIP(lms) });
+/** ELBOW_HIP_BODY plus KNEE — front-lever's own angles() (ELBOW_HIP_BODY)
+ * never actually produced a `knee` value, which silently dead-coded its
+ * `bent-knees` rule (angles.knee was always undefined). */
+const ELBOW_HIP_BODY_KNEE = (lms: Landmark[]) => ({ ...ELBOW(lms), ...HIP(lms), ...BODYLINE(lms), ...KNEE(lms) });
+/** Inverted-press family (handstand / HSPU / HSPU-90 / 90° hold): elbow,
+ * body line, knee, and torso lean off vertical (both-sides-aware — the
+ * single-side `verticalDeviation` version handstand used to compute directly
+ * silently went null for anyone filming their other side). */
+const INVERTED_PRESS = (lms: Landmark[]) => ({ ...ELBOW(lms), ...BODYLINE(lms), ...KNEE(lms), lean: torsoLeanDeg(lms) });
 
-/** Track the MORE BENT knee (min of both) — for single-leg moves like pistol. */
-function minKnee(lms: Landmark[]): number | null {
-  const lOk = allVisible(lms, [L.LeftHip, L.LeftKnee, L.LeftAnkle], 0.5);
-  const rOk = allVisible(lms, [L.RightHip, L.RightKnee, L.RightAnkle], 0.5);
+/** Track the MORE BENT knee (min of both) — for single-leg moves like pistol.
+ *  Threshold lowered to 0.3 (from 0.4) because a side-view pistol naturally
+ *  occludes the far leg — requiring 0.4 on BOTH knees was a silent reject
+ *  for almost every real pistol attempt. */
+function minKnee(lms: Landmark[], threshold = 0.4): number | null {
+  const lOk = allVisible(lms, [L.LeftHip, L.LeftKnee, L.LeftAnkle], threshold);
+  const rOk = allVisible(lms, [L.RightHip, L.RightKnee, L.RightAnkle], threshold);
   const lAng = lOk ? jointAngle(lms[L.LeftHip], lms[L.LeftKnee], lms[L.LeftAnkle]) : null;
   const rAng = rOk ? jointAngle(lms[L.RightHip], lms[L.RightKnee], lms[L.RightAnkle]) : null;
   if (lAng != null && rAng != null) return Math.min(lAng, rAng);
   return lAng ?? rAng;
 }
 const MIN_KNEE = (lms: Landmark[]) => ({ knee: minKnee(lms) });
+/** Pistol-specific: lower threshold (0.3) because the far leg is naturally
+ * occluded from a side view. Standard MIN_KNEE at 0.4 silently returned null
+ * for almost every real pistol attempt where the far-side hip/knee/ankle
+ * dipped below 0.4 visibility. */
+const MIN_KNEE_LOOSE = (lms: Landmark[]) => ({ knee: minKnee(lms, 0.3) });
 const ELBOW_HIP_BODY = (lms: Landmark[]) => ({ ...ELBOW(lms), ...HIP(lms), ...BODYLINE(lms) });
 
 /** Track the MORE DRAWN-IN hip (min of both) — for alternating-leg drills
- * (mountain climbers, high knees) where either leg's drive should count. */
+ *  (mountain climbers, high knees) where either leg's drive should count. */
 function minHip(lms: Landmark[]): number | null {
-  const lOk = allVisible(lms, [L.LeftShoulder, L.LeftHip, L.LeftKnee], 0.5);
-  const rOk = allVisible(lms, [L.RightShoulder, L.RightHip, L.RightKnee], 0.5);
+  const lOk = allVisible(lms, [L.LeftShoulder, L.LeftHip, L.LeftKnee], 0.4);
+  const rOk = allVisible(lms, [L.RightShoulder, L.RightHip, L.RightKnee], 0.4);
   const lAng = lOk ? jointAngle(lms[L.LeftShoulder], lms[L.LeftHip], lms[L.LeftKnee]) : null;
   const rAng = rOk ? jointAngle(lms[L.RightShoulder], lms[L.RightHip], lms[L.RightKnee]) : null;
   if (lAng != null && rAng != null) return Math.min(lAng, rAng);
   return lAng ?? rAng;
 }
 const MIN_HIP = (lms: Landmark[]) => ({ hip: minHip(lms) });
+const MIN_HIP_ELBOW_BODY = (lms: Landmark[]) => ({ ...MIN_HIP(lms), ...ELBOW(lms), ...BODYLINE(lms) });
+
+/**
+ * Confirmed on the dip bars/chair, not just standing: hands gripping a
+ * support are near-or-above hip height (you press DOWN on something raised);
+ * standing at ease has your arms hanging relaxed, wrists at or below hip
+ * height. Mirrors isProne's "confirmed on the floor" / isHangingOnBar's
+ * "confirmed on the bar" reasoning — an approximate proxy, not a real object
+ * detector, same as every other support gate in this file.
+ */
+function isDipSupported(lms: Landmark[]): boolean {
+  const shoulder = pairYGate(lms, L.LeftShoulder, L.RightShoulder);
+  const hip = pairYGate(lms, L.LeftHip, L.RightHip);
+  const wrist = pairYGate(lms, L.LeftWrist, L.RightWrist);
+  if (shoulder == null || hip == null || wrist == null) return false;
+  return shoulder < hip && wrist < hip - 0.02;
+}
+
+/**
+ * Jumping-jack gate (B13): both sides move as a mirrored pair throughout a
+ * REAL jack — feet together, feet apart, or mid-transition, the left and
+ * right side are always roughly equidistant from the body's own centerline.
+ * Walking, standing still while gesturing, or any single-side movement
+ * breaks that symmetry. Deliberately NOT a "feet must stay close together"
+ * check — an earlier version of this reasoning rejected that approach
+ * because the exercise's own motion spreads both feet apart in x on every
+ * single genuine rep, which a fixed-stance-width gate would wrongly reject.
+ * Symmetry, not absolute spread, is what a jack always has and most
+ * unrelated movement doesn't. Missing landmarks never invent a rejection —
+ * only visible, clearly-asymmetric pairs fail this.
+ */
+function isJackSymmetric(lms: Landmark[]): boolean {
+  const ls = lms[L.LeftShoulder]; const rs = lms[L.RightShoulder];
+  if (!ls || !rs || ls.visibility < 0.3 || rs.visibility < 0.3) return false;
+  const centerX = (ls.x + rs.x) / 2;
+  const scale = Math.abs(ls.x - rs.x);
+  if (scale < 1e-4) return false;
+  const symmetric = (a: Landmark | undefined, b: Landmark | undefined): boolean | null => {
+    if (!a || !b || a.visibility < 0.3 || b.visibility < 0.3) return null;
+    return Math.abs(Math.abs(a.x - centerX) - Math.abs(b.x - centerX)) / scale < 0.6;
+  };
+  const checks = [symmetric(lms[L.LeftWrist], lms[L.RightWrist]), symmetric(lms[L.LeftAnkle], lms[L.RightAnkle])]
+    .filter((v): v is boolean => v != null);
+  if (checks.length === 0) return true;
+  return checks.every(Boolean);
+}
 
 /**
  * Pseudo-angle for jumping jacks: arms at your sides reads high (like a rep
  * exercise's resting "top"), arms overhead reads low ("bottom") — so it slots
- * into the same rep-counter hysteresis as every other move. Unverified on
- * device (new heuristic, no real joint this measures) — the scale may need
- * a real-world pass once it's actually tried on a phone.
+ * into the same rep-counter hysteresis as every other move. Thresholds
+ * (downBelow 70 / upAbove 140 out of the 0-180 synthetic scale) are
+ * deliberately forgiving rather than requiring a full "hands nearly touching
+ * overhead" extension or a dead-hang return to the sides — standard form
+ * guidance describes that as the target shape, but the counter only needs
+ * "clearly raised" and "clearly lowered" to register a real rep, not a
+ * picture-perfect one. Still no real device test of this synthetic metric
+ * (no real joint it directly measures, unlike every other tracked move) —
+ * worth a real-world pass once it's actually tried on a phone.
  */
 function jackAngle(lms: Landmark[]): number | null {
   const wrist = pairY(lms, L.LeftWrist, L.RightWrist);
@@ -197,33 +544,25 @@ function jackAngle(lms: Landmark[]): number | null {
 const JACK_ANGLE = (lms: Landmark[]) => ({ jack: jackAngle(lms) });
 
 /**
- * How high the hips have risen above the shoulder-ankle line, as a 0-180
- * pseudo-angle (90 = resting flat, higher = more lift). Glute bridges were
- * originally tracked with the HIP() joint angle (shoulder-hip-knee) like
- * every other hinge move, but that angle also shifts with how far your feet
- * are planted from your hips — a setup choice, not form — so two people (or
- * the same person on different reps) could show very different "depth"
- * readings despite lifting the exact same height. Measuring the hip's
- * vertical position directly sidesteps foot placement entirely. Unverified
- * on device — new heuristic, the scale factor may need a real-world pass.
+ * Re-exported so `registry.ts` can build GATE_REGISTRY/ANGLE_FN_REGISTRY —
+ * the fixed, named lookup tables a remote exercise config selects from by
+ * string key (see registry.ts's doc comment). This is what keeps a remote
+ * config data-only: it names one of these already-shipped, already-reviewed
+ * functions, it never contains code of its own.
  */
-function hipLift(lms: Landmark[]): number | null {
-  const shoulder = pairY(lms, L.LeftShoulder, L.RightShoulder);
-  const hip = pairY(lms, L.LeftHip, L.RightHip);
-  const ankle = pairY(lms, L.LeftAnkle, L.RightAnkle);
-  if (shoulder == null || hip == null || ankle == null) return null;
-  const baseline = (shoulder + ankle) / 2;
-  const lift = baseline - hip; // positive once the hips rise above the shoulder-ankle line
-  return Math.max(0, Math.min(180, 90 + lift * 400));
-}
-const HIP_LIFT = (lms: Landmark[]) => ({ hip: hipLift(lms) });
-
+export {
+  isProne, isHangingOnBar, feetOffFloor, isInverted, isInPlanche, oneLegForward,
+  feetPlanted, isWallSitting, isDipSupported, isHorizontal, kneesOffFloor,
+  wristsKneesOffFloor,
+  ELBOW, KNEE, HIP, BODYLINE, ELBOW_AND_BODYLINE, HIP_AND_KNEE, MIN_KNEE, MIN_HIP,
+  STANDING, ARMS, ARMS_AND_HIPS,
+};
 
 type Def = {
   slug: string; name: string; category: ExerciseCategory; mode: ExerciseMode;
   family: string; level: number; muscles: Muscle[]; summary: string; howTo: string[]; cues: string[];
   view?: Exercise['view']; setup?: string; hideLegs?: boolean; showBar?: boolean;
-  angles?: Exercise['angles']; rep?: Exercise['rep']; hold?: Exercise['hold'];
+  angles?: Exercise['angles']; rep?: Exercise['rep']; adaptiveRep?: Exercise['adaptiveRep']; hold?: Exercise['hold'];
   gauge?: Exercise['gauge'];
   gate?: Exercise['gate']; requiredJoints?: Exercise['requiredJoints']; targetAngle?: number;
   countEccentric?: Exercise['countEccentric'];
@@ -268,16 +607,71 @@ export const EXERCISES: Exercise[] = [
       'If your lower back aches, your hips are probably sagging — brace your core first',
       'Plateaued? Elevate your feet slightly to add load before harder variations',
     ],
-    angles: ELBOW_AND_BODYLINE, rep: PUSH_REP, targetAngle: 90, gate: ({ landmarks }) => isProne(landmarks),
+    angles: ELBOW_AND_BODYLINE, rep: PUSH_REP, adaptiveRep: true, targetAngle: 90, gate: ({ landmarks }) => isProne(landmarks),
     gauge: { angle: 'elbow', label: 'Depth', downBelow: 95, upAbove: 155, target: 90 },
     formRules: [
-      { id: 'body-line', bodyPart: 'torso', cue: 'Straighten your body', say: 'Keep your body in one straight line.', severity: 'warn', test: ({ angles }) => angles.bodyLine != null && angles.bodyLine < 160 },
+      // bodyLine is UNSIGNED (jointAngle can't tell a sag from a pike — both
+      // bend the shoulder-hip-ankle joint the same direction), so it's only
+      // used here as a direction-neutral early notice. The two REAL faults
+      // (sag/pike) use hipLineDeviation instead, which is signed — that's
+      // what keeps them from ever contradicting each other (the old single
+      // unsigned rule could tell someone "don't sag" while they were
+      // actually piking, or vice versa).
+      { id: 'body-line', bodyPart: 'torso', cue: 'Straighten your body', say: 'Keep your body in one straight line.', severity: 'info', test: ({ angles }) => angles.bodyLine != null && angles.bodyLine < 165 },
+      { id: 'sagging-hips', bodyPart: 'torso', cue: 'Don\'t let your hips sag', say: 'Your hips are dropping — squeeze your glutes to keep a straight line.', severity: 'warn', test: ({ landmarks }) => { const d = hipLineDeviation(landmarks); return d != null && d < -0.05; } },
+      { id: 'piked', bodyPart: 'torso', cue: 'Lower your hips', say: 'Your hips are riding too high — bring them down in line with your shoulders.', severity: 'warn', test: ({ landmarks }) => { const d = hipLineDeviation(landmarks); return d != null && d > 0.05; } },
       { id: 'depth', bodyPart: 'arm', cue: 'Go a little lower', say: 'Go a little lower — get your elbows to ninety.', severity: 'info', test: ({ angles }) => angles.elbow != null && angles.elbow > 110 && angles.elbow < 145 },
-      { id: 'sagging-hips', bodyPart: 'torso', cue: 'Don\'t let your hips sag', say: 'Your hips are dropping — squeeze your glutes to keep a straight line.', severity: 'warn', test: ({ angles }) => angles.bodyLine != null && angles.bodyLine < 140 },
-      { id: 'elbow-flare', bodyPart: 'arm', cue: 'Tuck your elbows in', say: 'Keep your elbows at a 45-degree angle to your torso, not flared out.', severity: 'warn', test: ({ landmarks }) => {
-          const ls = landmarks[L.LeftShoulder]; const le = landmarks[L.LeftElbow]; const lw = landmarks[L.LeftWrist];
-          return ls != null && le != null && lw != null && ls.visibility >= 0.5 && le.visibility >= 0.5 && lw.visibility >= 0.5
-            ? Math.abs(le.x - ls.x) > Math.abs(lw.x - le.x) * 1.5 : false;
+      { id: 'elbow-flare', bodyPart: 'arm', cue: 'Tuck your elbows in', say: 'Keep your elbows at a 45-degree angle to your torso, not flared out.', severity: 'warn', test: ({ landmarks, angles }) => {
+          // Only a real fault while actually bent (mid-rep) — at lockout the
+          // upper arm is vertical too, so the same x-ratio reads as "flared"
+          // on every single rep and this fired almost constantly (reported:
+          // 1 of 34 push-ups counted "clean"). Checked on whichever side is
+          // visible, not just left, and loosened — a natural 45° tuck still
+          // moves the elbow out from under the shoulder more than the old
+          // 1.5x ratio tolerated.
+          if (angles.elbow == null || angles.elbow > 130) return false;
+          const flared = (s: Landmark | undefined, e: Landmark | undefined, w: Landmark | undefined) =>
+            s != null && e != null && w != null && s.visibility >= 0.5 && e.visibility >= 0.5 && w.visibility >= 0.5
+              ? Math.abs(e.x - s.x) > Math.abs(w.x - e.x) * 2.2 : null;
+          const left = flared(landmarks[L.LeftShoulder], landmarks[L.LeftElbow], landmarks[L.LeftWrist]);
+          const right = flared(landmarks[L.RightShoulder], landmarks[L.RightElbow], landmarks[L.RightWrist]);
+          // Require both visible sides to agree — a single side's jitter
+          // shouldn't be enough to flag a fault on a front-facing move.
+          if (left != null && right != null) return left && right;
+          return left ?? right ?? false;
+      }},
+      { id: 'hands-wide', bodyPart: 'arm', cue: 'Bring your hands in slightly', say: 'Your hands are quite wide — bring them in a bit for less shoulder strain.', severity: 'info', test: ({ landmarks }) => {
+          const sw = shoulderWidth(landmarks);
+          const lw = landmarks[L.LeftWrist]; const rw = landmarks[L.RightWrist];
+          if (sw == null || sw < 1e-4 || !lw || !rw || lw.visibility < 0.5 || rw.visibility < 0.5) return false;
+          return Math.abs(lw.x - rw.x) / sw > 1.8;
+      }},
+      { id: 'hands-narrow', bodyPart: 'arm', cue: 'Widen your hands slightly', say: 'Your hands are quite narrow — widen a touch to protect your wrists and elbows.', severity: 'info', test: ({ landmarks }) => {
+          const sw = shoulderWidth(landmarks);
+          const lw = landmarks[L.LeftWrist]; const rw = landmarks[L.RightWrist];
+          if (sw == null || sw < 1e-4 || !lw || !rw || lw.visibility < 0.5 || rw.visibility < 0.5) return false;
+          return Math.abs(lw.x - rw.x) / sw < 0.65;
+      }},
+      { id: 'uneven-arms', bodyPart: 'arm', cue: 'Push up evenly with both arms', say: 'One arm is doing more work than the other — press up evenly on both sides.', severity: 'warn', test: ({ landmarks, angles }) => {
+          if (angles.elbow == null || angles.elbow > 155) return false;
+          const le = landmarks[L.LeftElbow]; const re = landmarks[L.RightElbow];
+          if (!allVisible(landmarks, [L.LeftShoulder, L.LeftElbow, L.LeftWrist, L.RightShoulder, L.RightElbow, L.RightWrist], 0.5) || !le || !re) return false;
+          const left = jointAngle(landmarks[L.LeftShoulder], le, landmarks[L.LeftWrist]);
+          const right = jointAngle(landmarks[L.RightShoulder], re, landmarks[L.RightWrist]);
+          return Math.abs(left - right) > 25;
+      }},
+      { id: 'head-drop', bodyPart: 'torso', cue: 'Keep your neck neutral', say: 'Your head is dropping — keep your neck neutral, eyes just ahead of your hands.', severity: 'info', test: ({ landmarks }) => {
+          const sw = shoulderWidth(landmarks);
+          const nose = landmarks[L.Nose];
+          const shoulderY = pairY(landmarks, L.LeftShoulder, L.RightShoulder);
+          if (sw == null || sw < 1e-4 || !nose || nose.visibility < 0.5 || shoulderY == null) return false;
+          return nose.y - shoulderY > sw * 0.6;
+      }},
+      { id: 'hip-twist', bodyPart: 'torso', cue: 'Keep your hips square', say: 'Your hips are twisting — keep them square and move as one straight unit.', severity: 'warn', test: ({ landmarks }) => {
+          const sw = shoulderWidth(landmarks);
+          const lh = landmarks[L.LeftHip]; const rh = landmarks[L.RightHip];
+          if (sw == null || sw < 1e-4 || !lh || !rh || lh.visibility < 0.5 || rh.visibility < 0.5) return false;
+          return Math.abs(lh.y - rh.y) > sw * 0.5;
       }},
     ],
   }),
@@ -306,22 +700,76 @@ export const EXERCISES: Exercise[] = [
     gauge: { angle: 'elbow', label: 'Height', downBelow: 95, upAbove: 145, target: 55 },
     formRules: [
       { id: 'partial', bodyPart: 'arm', cue: 'Chin over the bar', say: 'Pull higher — get your chin over the bar.', severity: 'warn', test: ({ angles }) => angles.elbow != null && angles.elbow > 95 && angles.elbow < 130 },
-      { id: 'no-lockout', bodyPart: 'arm', cue: 'Lock out at the bottom', say: 'Fully extend your arms at the bottom — dead hang every rep.', severity: 'info', test: ({ angles }) => angles.elbow != null && angles.elbow < 160 },
+      { id: 'no-lockout', bodyPart: 'arm', cue: 'Lock out at the bottom', say: 'Fully extend your arms at the bottom — dead hang every rep.', severity: 'info', test: ({ angles }) => angles.elbow != null && angles.elbow >= 130 && angles.elbow < 145 },
+      // FIXED: this used to compare shoulder-to-hip Y distance — plain torso
+      // length on screen, not sway — so it was true for the entire set
+      // regardless of kipping (reported: "No kipping" showing on every
+      // rep). Kipping bends AT the hip, swinging the lower body out from
+      // under the shoulders — that's an X-axis divergence between the
+      // shoulder and hip midpoints, the same signal hanging-knee-raise's
+      // (correct) 'swinging' rule already uses.
       { id: 'kipping', bodyPart: 'torso', cue: 'No kipping', say: 'Use strict form — no swinging your legs or hips to gain momentum.', severity: 'warn', test: ({ landmarks }) => {
+          const sw = shoulderWidth(landmarks);
           const ls = landmarks[L.LeftShoulder]; const rs = landmarks[L.RightShoulder];
           const lh = landmarks[L.LeftHip]; const rh = landmarks[L.RightHip];
-          if (!ls || !rs || !lh || !rh) return false;
+          if (sw == null || sw < 1e-4 || !ls || !rs || !lh || !rh) return false;
           if (ls.visibility < 0.5 || rs.visibility < 0.5 || lh.visibility < 0.5 || rh.visibility < 0.5) return false;
-          const shoulderY = (ls.y + rs.y) / 2;
-          const hipY = (lh.y + rh.y) / 2;
-          return Math.abs(shoulderY - hipY) > 0.15;
+          const midShoulderX = (ls.x + rs.x) / 2;
+          const midHipX = (lh.x + rh.x) / 2;
+          return Math.abs(midShoulderX - midHipX) / sw > 0.5;
+      }},
+      { id: 'legs-swinging', bodyPart: 'leg', cue: 'Keep your legs still', say: 'Your legs are swinging out — keep them still and braced.', severity: 'warn', test: ({ landmarks }) => {
+          const sw = shoulderWidth(landmarks);
+          const lh = landmarks[L.LeftHip]; const rh = landmarks[L.RightHip];
+          const la = landmarks[L.LeftAnkle]; const ra = landmarks[L.RightAnkle];
+          if (sw == null || sw < 1e-4 || !lh || !rh || !la || !ra) return false;
+          if (lh.visibility < 0.5 || rh.visibility < 0.5 || la.visibility < 0.5 || ra.visibility < 0.5) return false;
+          const midHipX = (lh.x + rh.x) / 2;
+          const midAnkleX = (la.x + ra.x) / 2;
+          return Math.abs(midHipX - midAnkleX) / sw > 0.6;
+      }},
+      { id: 'shrug', bodyPart: 'arm', cue: 'Relax your shoulders first', say: 'Starting with your shoulders hunched up by your ears disengages your lats — relax and hang first.', severity: 'info', test: ({ landmarks }) => { const g = shrugGap(landmarks); return g != null && g < 0.15; } },
+      { id: 'hands-wide', bodyPart: 'arm', cue: 'Bring your hands in slightly', say: 'A very wide grip adds shoulder strain — just outside shoulder width is plenty.', severity: 'info', test: ({ landmarks }) => {
+          const sw = shoulderWidth(landmarks);
+          const lw = landmarks[L.LeftWrist]; const rw = landmarks[L.RightWrist];
+          if (sw == null || sw < 1e-4 || !lw || !rw || lw.visibility < 0.5 || rw.visibility < 0.5) return false;
+          return Math.abs(lw.x - rw.x) / sw > 2.2;
+      }},
+      { id: 'hands-narrow', bodyPart: 'arm', cue: 'Widen your grip slightly', say: 'A very narrow grip strains your wrists — widen to just outside shoulder width.', severity: 'info', test: ({ landmarks }) => {
+          const sw = shoulderWidth(landmarks);
+          const lw = landmarks[L.LeftWrist]; const rw = landmarks[L.RightWrist];
+          if (sw == null || sw < 1e-4 || !lw || !rw || lw.visibility < 0.5 || rw.visibility < 0.5) return false;
+          return Math.abs(lw.x - rw.x) / sw < 0.9;
+      }},
+      { id: 'uneven-pull', bodyPart: 'arm', cue: 'Pull evenly with both arms', say: 'One arm is pulling more than the other — drive evenly on both sides.', severity: 'warn', test: ({ landmarks, angles }) => {
+          if (angles.elbow == null || angles.elbow > 155) return false;
+          const le = landmarks[L.LeftElbow]; const re = landmarks[L.RightElbow];
+          if (!allVisible(landmarks, [L.LeftShoulder, L.LeftElbow, L.LeftWrist, L.RightShoulder, L.RightElbow, L.RightWrist], 0.5) || !le || !re) return false;
+          const left = jointAngle(landmarks[L.LeftShoulder], le, landmarks[L.LeftWrist]);
+          const right = jointAngle(landmarks[L.RightShoulder], re, landmarks[L.RightWrist]);
+          return Math.abs(left - right) > 25;
+      }},
+      { id: 'uneven-grip', bodyPart: 'arm', cue: 'Even out your grip height', say: 'One hand is noticeably higher on the bar than the other — even out your grip.', severity: 'info', test: ({ landmarks }) => {
+          const sw = shoulderWidth(landmarks);
+          const lw = landmarks[L.LeftWrist]; const rw = landmarks[L.RightWrist];
+          if (sw == null || sw < 1e-4 || !lw || !rw || lw.visibility < 0.5 || rw.visibility < 0.5) return false;
+          return Math.abs(lw.y - rw.y) / sw > 0.4;
+      }},
+      { id: 'shoulder-tilt', bodyPart: 'torso', cue: 'Keep your shoulders level', say: 'You\'re rotating around the bar — keep your shoulders level.', severity: 'warn', test: ({ landmarks }) => {
+          const sw = shoulderWidth(landmarks);
+          const ls = landmarks[L.LeftShoulder]; const rs = landmarks[L.RightShoulder];
+          if (sw == null || sw < 1e-4 || !ls || !rs || ls.visibility < 0.5 || rs.visibility < 0.5) return false;
+          return Math.abs(ls.y - rs.y) / sw > 0.4;
       }},
     ],
   }),
   def({
     slug: 'l-sit', name: 'L-Sit', category: 'core', mode: 'hold', family: 'l-sit', level: 1,
     muscles: ['core', 'triceps'], view: 'side', requiredJoints: STANDING,
-    gate: ({ landmarks }) => feetOffFloor(landmarks, 0),
+    // FIXED (B12): feetOffFloor alone also passes lying flat on your back
+    // with legs raised — isSeatedSupport requires the shoulders to actually
+    // be up on a support, not lying down.
+    gate: ({ landmarks }) => feetOffFloor(landmarks) && isSeatedSupport(landmarks),
     setup: 'Film your SIDE at floor level. It watches one arm, your torso and one leg — the L of your hips and whether your legs are straight and floating.',
     summary: 'Support hold with legs extended straight — compression strength.',
     howTo: ['Hands on the floor or parallettes.', 'Press down and lift your body.', 'Extend legs to horizontal, feet off the floor.', 'Hold with straight knees.'],
@@ -339,21 +787,42 @@ export const EXERCISES: Exercise[] = [
       'Parallettes raise you off the floor for extra clearance if space is tight',
       'Hip flexors burning first is normal — that\'s not a sign you\'re doing it wrong',
     ],
-    angles: HIP_AND_KNEE, hold: { angle: 'hip', minOk: 20, maxOk: 165 }, targetAngle: 90,
-    gauge: { angle: 'knee', label: 'Straightness', downBelow: 120, upAbove: 160, target: 180 },
+    // Adds elbow (arm lockout) and bodyLine (hollow-vs-arched) to the
+    // hip/knee this already tracked — neither fault was checkable before.
+    angles: ELBOW_HIP_BODY_KNEE, hold: { angle: 'hip', minOk: 60, maxOk: 130 }, targetAngle: 90,
+    // FIXED (B17): target (180) sat outside the gauge's own 120-160 range.
+    gauge: { angle: 'hip', label: 'Compression', downBelow: 60, upAbove: 130, target: 90 },
     formRules: [
+      { id: 'locked-arms', bodyPart: 'arm', cue: 'Lock your arms', say: 'Fully extend your elbows — a bent arm means you\'re not really supporting the hold.', severity: 'warn', test: ({ angles }) => angles.elbow != null && angles.elbow < 160 },
+      { id: 'bent-legs-mild', bodyPart: 'leg', cue: 'Lock your knees', say: 'Your knees are starting to bend — lock them out straight.', severity: 'info', test: ({ angles }) => angles.knee != null && angles.knee < 165 && angles.knee >= 150 },
       { id: 'bent-legs', bodyPart: 'leg', cue: 'Straighten your legs', say: 'Straighten your legs — lock your knees and point your toes.', severity: 'warn', test: ({ angles }) => angles.knee != null && angles.knee < 150 },
-      { id: 'shrug', bodyPart: 'arm', cue: 'Depress your shoulders', say: 'Push your shoulders down away from your ears — don\'t shrug.', severity: 'warn', test: ({ landmarks }) => {
+      // FIXED (B8): used to compare shoulder to NOSE, which also drops when
+      // the head simply tilts down — a head-forward-but-not-shrugged athlete
+      // got told "depress your shoulders" incorrectly. shrugGap compares the
+      // shoulder to the EAR instead, which head tilt doesn't move.
+      { id: 'shrug', bodyPart: 'arm', cue: 'Depress your shoulders', say: 'Push your shoulders down away from your ears — don\'t shrug.', severity: 'warn', test: ({ landmarks }) => { const g = shrugGap(landmarks); return g != null && g < 0.15; } },
+      { id: 'neck', bodyPart: 'torso', cue: 'Keep your gaze forward', say: 'Keep your gaze forward, not down at your feet.', severity: 'info', test: ({ landmarks }) => {
           const nose = landmarks[L.Nose]; const ls = landmarks[L.LeftShoulder];
           return nose != null && ls != null && nose.visibility >= 0.5 && ls.visibility >= 0.5
-            ? (ls.y - nose.y) < 0.08 : false;
+            ? Math.abs(nose.x - ls.x) > 0.08 : false;
+      }},
+      { id: 'feet-low', bodyPart: 'leg', cue: 'Lift your legs higher', say: 'Your feet are barely off the floor — press down harder and lift.', severity: 'info', test: ({ landmarks }) => {
+          const a = pairY(landmarks, L.LeftAnkle, L.RightAnkle, 'min');
+          const w = pairY(landmarks, L.LeftWrist, L.RightWrist);
+          return a != null && w != null && a > w - 0.08 && a < w + 0.02;
+      }},
+      { id: 'uneven-legs', bodyPart: 'leg', cue: 'Raise both legs evenly', say: 'One leg is higher than the other — raise them together.', severity: 'warn', test: ({ landmarks }) => {
+          const scale = torsoScale(landmarks);
+          const la = landmarks[L.LeftAnkle]; const ra = landmarks[L.RightAnkle];
+          if (scale == null || scale < 1e-4 || !la || !ra || la.visibility < 0.5 || ra.visibility < 0.5) return false;
+          return Math.abs(la.y - ra.y) / scale > 0.35;
       }},
     ],
   }),
   def({
     slug: 'plank', name: 'Forearm Plank', category: 'core', mode: 'hold', family: 'plank', level: 1,
     muscles: ['core'], view: 'side', requiredJoints: STANDING,
-    gate: ({ landmarks }) => isProne(landmarks),
+    gate: ({ landmarks }) => isProne(landmarks) && kneesOffFloor(landmarks),
     setup: 'Film your SIDE at floor level. It watches one side — shoulder, hip and ankle — so your body line is clear.',
     summary: 'Anti-extension core hold. Stay flat and braced.',
     howTo: ['Forearms under your shoulders.', 'Extend legs, feet hip-width.', 'One straight line head to heels.', 'Brace your abs and breathe.'],
@@ -371,21 +840,45 @@ export const EXERCISES: Exercise[] = [
       'If your lower back aches, stop — that means your hips have dropped',
       'Build time gradually — add 5–10s per week rather than chasing a max hold',
     ],
-    angles: BODYLINE, hold: { angle: 'bodyLine', minOk: 130, maxOk: 180 }, targetAngle: 178,
+    // The HOLD gate stays on the unsigned bodyLine angle (158-180) — an
+    // extreme sag AND an extreme pike are both "not a valid plank", so
+    // whether the clock runs deliberately doesn't need a direction. The live
+    // coaching cues below DO need direction (telling someone to lift their
+    // hips while they're actually piking would be exactly backwards), so
+    // 'sag'/'piked' use the signed hipLineDeviation instead of this angle.
+    angles: BODYLINE_AND_KNEE, hold: { angle: 'bodyLine', minOk: 158, maxOk: 180 }, targetAngle: 178,
     formRules: [
-      { id: 'sag', bodyPart: 'torso', cue: 'Lift your hips', say: 'Your hips are sagging — squeeze your glutes and lift them into line.', severity: 'warn', test: ({ angles }) => angles.bodyLine != null && angles.bodyLine < 158 },
-      { id: 'piked', bodyPart: 'torso', cue: 'Lower your hips', say: 'You\'re piking up — bring your hips down in line with your shoulders and heels.', severity: 'warn', test: ({ angles }) => angles.bodyLine != null && angles.bodyLine > 175 },
+      { id: 'body-line', bodyPart: 'torso', cue: 'Tighten your line', say: 'Brace your core and glutes — tighten that line from head to heels.', severity: 'info', test: ({ angles }) => angles.bodyLine != null && angles.bodyLine < 168 },
+      { id: 'sag', bodyPart: 'torso', cue: 'Lift your hips', say: 'Your hips are sagging — squeeze your glutes and lift them into line.', severity: 'warn', test: ({ landmarks }) => { const d = hipLineDeviation(landmarks); return d != null && d < -0.05; } },
+      { id: 'piked', bodyPart: 'torso', cue: 'Lower your hips', say: 'You\'re piking up — bring your hips down in line with your shoulders and heels.', severity: 'warn', test: ({ landmarks }) => { const d = hipLineDeviation(landmarks); return d != null && d > 0.05; } },
       { id: 'neutral-neck', bodyPart: 'torso', cue: 'Neutral neck', say: 'Keep your neck in line with your spine — gaze at the floor, not ahead.', severity: 'info', test: ({ landmarks }) => {
           const nose = landmarks[L.Nose]; const ls = landmarks[L.LeftShoulder];
           return nose != null && ls != null && nose.visibility >= 0.5 && ls.visibility >= 0.5
             ? Math.abs(nose.x - ls.x) > 0.06 : false;
       }},
+      { id: 'head-drop', bodyPart: 'torso', cue: 'Don\'t let your head hang', say: 'Your head is dropping — keep it in line with your spine, not hanging down.', severity: 'info', test: ({ landmarks }) => {
+          const scale = torsoScale(landmarks);
+          const nose = landmarks[L.Nose];
+          const shoulderY = pairY(landmarks, L.LeftShoulder, L.RightShoulder);
+          if (scale == null || scale < 1e-4 || !nose || nose.visibility < 0.5 || shoulderY == null) return false;
+          return (nose.y - shoulderY) / scale > 0.5;
+      }},
+      { id: 'shrug', bodyPart: 'arm', cue: 'Relax your shoulders', say: 'Push your shoulders down away from your ears instead of shrugging.', severity: 'info', test: ({ landmarks }) => { const g = shrugGap(landmarks); return g != null && g < 0.15; } },
+      { id: 'elbows-mild', bodyPart: 'arm', cue: 'Stack your elbows under your shoulders', say: 'Slide your elbows back under your shoulders for a stronger base.', severity: 'info', test: ({ landmarks }) => { const o = stackOffset(landmarks, L.LeftElbow, L.RightElbow); return o != null && o > 0.4 && o <= 0.65; } },
+      { id: 'elbows-not-stacked', bodyPart: 'arm', cue: 'Elbows under your shoulders', say: 'Your elbows have drifted well away from under your shoulders — stack them back underneath.', severity: 'warn', test: ({ landmarks }) => { const o = stackOffset(landmarks, L.LeftElbow, L.RightElbow); return o != null && o > 0.65; } },
+      { id: 'knees-mild', bodyPart: 'leg', cue: 'Lock your knees', say: 'Your knees are starting to bend — lock them out straight.', severity: 'info', test: ({ angles }) => angles.knee != null && angles.knee < 172 && angles.knee >= 155 },
+      { id: 'bent-knees', bodyPart: 'leg', cue: 'Straighten your legs', say: 'Straighten your legs fully — bent knees turn this into a shorter lever, not a real plank.', severity: 'warn', test: ({ angles }) => angles.knee != null && angles.knee < 155 },
     ],
   }),
   def({
     slug: 'squat', name: 'Bodyweight Squat', category: 'lower', mode: 'reps', family: 'squat', level: 1,
     muscles: ['quads', 'glutes'], view: 'side', requiredJoints: STANDING,
-    gate: ({ landmarks }) => feetPlanted(landmarks),
+    // FIXED (B10): feetPlanted alone only rules out mid-stride walking — it
+    // says nothing about the KNEES actually moving together, so sitting
+    // sideways in a chair or any single-leg knee bend with feet stacked in x
+    // could still drive the rep counter. A real two-footed squat bends both
+    // knees together; requiring that closes the gap.
+    gate: ({ landmarks }) => feetPlanted(landmarks) && kneesSymmetric(landmarks),
     setup: 'Film your SIDE, phone upright 2–3 m away — head to feet in frame. It watches one leg and your back.',
     summary: 'The foundational leg exercise. Sit down, stand tall.',
     howTo: ['Feet shoulder-width, toes slightly out.', 'Brace your core, chest proud.', 'Push hips back, bend knees to ~parallel.', 'Drive through mid-foot to stand tall.'],
@@ -403,24 +896,54 @@ export const EXERCISES: Exercise[] = [
       'Heels flat on the floor the whole rep — don\'t let them lift',
       'If your knees ache, check they aren\'t collapsing inward first',
     ],
-    angles: (lms) => ({ ...KNEE(lms), torsoLean: verticalDeviation(lms[L.LeftShoulder], lms[L.LeftHip]) }),
-    rep: { angle: 'knee', downBelow: 112, upAbove: 155 }, targetAngle: 90,
-    gauge: { angle: 'knee', label: 'Depth', downBelow: 112, upAbove: 155, target: 90 },
+    // FIXED (B6): torsoLean used to read only the LEFT shoulder/hip —
+    // filming from the right (equally valid for a side-view move) left it
+    // permanently null, silently disabling 'chest-up' for half of users.
+    // torsoLeanDeg tries whichever side is actually visible.
+    angles: (lms) => ({ ...KNEE(lms), torsoLean: torsoLeanDeg(lms) }),
+    // More forgiving rep thresholds — you don't need to hit ATG or full
+    // lockout to register a rep, but the form rules still nudge you toward both.
+    rep: { angle: 'knee', downBelow: 115, upAbove: 148 }, targetAngle: 90,
+    gauge: { angle: 'knee', label: 'Depth', downBelow: 115, upAbove: 148, target: 90 },
     formRules: [
-      { id: 'shallow', bodyPart: 'leg', cue: 'Go lower', say: 'Go lower — get your thighs to parallel.', severity: 'info', test: ({ angles }) => angles.knee != null && angles.knee > 120 && angles.knee < 150 },
+      { id: 'shallow', bodyPart: 'leg', cue: 'Go lower', say: 'Go lower — get your thighs to parallel.', severity: 'info', test: ({ angles }) => angles.knee != null && angles.knee > 110 && angles.knee < 140 },
+      { id: 'no-lockout', bodyPart: 'leg', cue: 'Stand all the way up', say: 'Finish the rep — lock your hips out at the top instead of stopping short.', severity: 'info', test: ({ angles }) => angles.knee != null && angles.knee >= 140 && angles.knee < 160 },
+      { id: 'chest-up-mild', bodyPart: 'torso', cue: 'Keep your chest tall', say: 'Start lifting your chest before you fold forward any further.', severity: 'info', test: ({ angles }) => angles.torsoLean != null && angles.knee != null && angles.knee < 150 && angles.torsoLean > 30 && angles.torsoLean <= 45 },
       { id: 'chest-up', bodyPart: 'torso', cue: 'Chest up', say: 'Keep your chest up and eyes forward.', severity: 'warn', test: ({ angles }) => angles.torsoLean != null && angles.knee != null && angles.knee < 150 && angles.torsoLean > 45 },
-      { id: 'knee-track', bodyPart: 'leg', cue: 'Knees over toes', say: 'Track your knees in line with your toes — don\'t let them cave in.', severity: 'warn', test: ({ landmarks }) => {
-          const lk = landmarks[L.LeftKnee]; const rk = landmarks[L.RightKnee];
-          const la = landmarks[L.LeftAnkle]; const ra = landmarks[L.RightAnkle];
-          if (!lk || !rk || !la || !ra) return false;
-          if (lk.visibility < 0.5 || rk.visibility < 0.5) return false;
-          return (Math.abs(lk.x - la.x) > 0.08 || Math.abs(rk.x - ra.x) > 0.08);
+      // Side view can only measure forward/back knee travel, not inward
+      // cave (that needs a front view) — the cue below is worded for what's
+      // actually being watched here.
+      { id: 'knee-forward-mild', bodyPart: 'leg', cue: 'Watch your knees drifting forward', say: 'Your knees are starting to travel well past your toes — sit back into your hips a bit more.', severity: 'info', test: ({ landmarks }) => {
+          const scale = torsoScale(landmarks);
+          const lk = landmarks[L.LeftKnee]; const la = landmarks[L.LeftAnkle];
+          const rk = landmarks[L.RightKnee]; const ra = landmarks[L.RightAnkle];
+          if (scale == null || scale < 1e-4) return false;
+          const off = (k: Landmark | undefined, a: Landmark | undefined) => k != null && a != null && k.visibility >= 0.5 && a.visibility >= 0.5 ? Math.abs(k.x - a.x) / scale : null;
+          const l = off(lk, la); const r = off(rk, ra);
+          const d = l != null && r != null ? Math.max(l, r) : (l ?? r);
+          return d != null && d > 0.5 && d <= 0.8;
+      }},
+      { id: 'knee-forward', bodyPart: 'leg', cue: 'Sit back into your hips', say: 'Your knees are traveling too far past your toes — push your hips back more.', severity: 'warn', test: ({ landmarks }) => {
+          const scale = torsoScale(landmarks);
+          const lk = landmarks[L.LeftKnee]; const la = landmarks[L.LeftAnkle];
+          const rk = landmarks[L.RightKnee]; const ra = landmarks[L.RightAnkle];
+          if (scale == null || scale < 1e-4) return false;
+          const off = (k: Landmark | undefined, a: Landmark | undefined) => k != null && a != null && k.visibility >= 0.5 && a.visibility >= 0.5 ? Math.abs(k.x - a.x) / scale : null;
+          const l = off(lk, la); const r = off(rk, ra);
+          const d = l != null && r != null ? Math.max(l, r) : (l ?? r);
+          return d != null && d > 0.8;
+      }},
+      { id: 'heel-lift', bodyPart: 'leg', cue: 'Keep your heels down', say: 'Your heels are lifting — keep your weight through your midfoot and heel, not your toes.', severity: 'warn', test: ({ landmarks }) => {
+          const l = heelLifted(landmarks, L.LeftHeel, L.LeftFootIndex);
+          const r = heelLifted(landmarks, L.RightHeel, L.RightFootIndex);
+          return l === true || r === true;
       }},
     ],
   }),
   def({
     slug: 'dip', name: 'Dip', category: 'upper', mode: 'reps', family: 'dip', level: 1,
-    muscles: ['chest', 'triceps', 'shoulders'], view: 'side', requiredJoints: ARMS,
+    muscles: ['chest', 'triceps', 'shoulders'], view: 'side', requiredJoints: ARMS_AND_HIPS,
+    gate: ({ landmarks }) => isDipSupported(landmarks),
     setup: 'Film your SIDE at bar/chair height so your elbow bend and depth are visible.',
     summary: 'The essential vertical push. Lower to 90°, press to lockout.',
     howTo: ['Support yourself on bars, arms straight.', 'Slight forward lean.', 'Lower until shoulders reach elbow height.', 'Press back to a full lockout.'],
@@ -438,46 +961,41 @@ export const EXERCISES: Exercise[] = [
       'Warm up your shoulders before going for depth',
       'Add a slow 3–4s lowering phase to build serious pressing strength',
     ],
-    angles: ELBOW, rep: { angle: 'elbow', downBelow: 118, upAbove: 155 }, targetAngle: 90,
-    gauge: { angle: 'elbow', label: 'Depth', downBelow: 118, upAbove: 155, target: 90 },
+    // downBelow was 118 — 28° short of target (90), a much wider gap than any
+    // sibling rep exercise (squat/push-up sit ~5°) and shallower than the
+    // ~90-95° trigger used by comparable open-source implementations. Tightened
+    // to 108, which still sits below the 'shallow' rule's window (110-145) so a
+    // rep can complete slightly before full depth and still get nagged for it.
+    angles: ELBOW, rep: { angle: 'elbow', downBelow: 108, upAbove: 155 }, targetAngle: 90,
+    gauge: { angle: 'elbow', label: 'Depth', downBelow: 108, upAbove: 155, target: 90 },
     formRules: [
       { id: 'shallow', bodyPart: 'arm', cue: 'Go deeper', say: 'Go a little deeper — shoulders to elbow height.', severity: 'info', test: ({ angles }) => angles.elbow != null && angles.elbow > 110 && angles.elbow < 145 },
-      { id: 'lean-forward', bodyPart: 'torso', cue: 'Lean forward slightly', say: 'A slight forward lean targets your chest — don\'t stay upright.', severity: 'info', test: ({ landmarks }) => {
-          const ls = landmarks[L.LeftShoulder]; const lh = landmarks[L.LeftHip];
-          return ls != null && lh != null && ls.visibility >= 0.5 && lh.visibility >= 0.5
-            ? Math.abs(ls.x - lh.x) < 0.03 : false;
+      // FIXED (B5): the old rule punished staying upright — but upright IS a
+      // valid, deliberate choice (this exercise's own cues explicitly say
+      // "stay upright for triceps"). Chest-vs-triceps emphasis is a real
+      // technique choice, not a fault, so it's dropped rather than replaced
+      // with a "correct" lean direction. What IS a real, direction-neutral
+      // fault: going deeper than is comfortable for the shoulder joint.
+      { id: 'too-deep', bodyPart: 'arm', cue: 'Careful going deeper than this', say: 'That\'s very deep for your shoulders — if you feel any pinching, don\'t go lower than this.', severity: 'warn', test: ({ angles }) => angles.elbow != null && angles.elbow < 70 },
+      { id: 'no-lockout', bodyPart: 'arm', cue: 'Full lockout at the top', say: 'Press all the way to a full lockout at the top of every rep.', severity: 'info', test: ({ angles }) => angles.elbow != null && angles.elbow >= 145 && angles.elbow < 155 },
+      { id: 'shrug', bodyPart: 'arm', cue: 'Shoulders down and back', say: 'Pull your shoulder blades down and back instead of letting them creep up.', severity: 'warn', test: ({ landmarks }) => { const g = shrugGap(landmarks); return g != null && g < 0.15; } },
+      { id: 'legs-swinging', bodyPart: 'leg', cue: 'Keep your legs still', say: 'Keep your core tight so your legs don\'t swing.', severity: 'warn', test: ({ landmarks }) => {
+          const scale = torsoScale(landmarks);
+          const ls = landmarks[L.LeftShoulder]; const rs = landmarks[L.RightShoulder];
+          const lh = landmarks[L.LeftHip]; const rh = landmarks[L.RightHip];
+          if (scale == null || scale < 1e-4 || !ls || !rs || !lh || !rh) return false;
+          if (ls.visibility < 0.5 || rs.visibility < 0.5 || lh.visibility < 0.5 || rh.visibility < 0.5) return false;
+          const shoulderX = (ls.x + rs.x) / 2;
+          const hipX = (lh.x + rh.x) / 2;
+          return Math.abs(shoulderX - hipX) / scale > 0.35;
       }},
-    ],
-  }),
-  def({
-    slug: 'pike-pushup', name: 'Pike Push-Up', category: 'upper', mode: 'reps', family: 'pike', level: 1,
-    muscles: ['shoulders', 'triceps'], view: 'side', requiredJoints: ARMS_AND_HIPS,
-    gate: ({ landmarks }) => isPiked(landmarks),
-    setup: 'Film your SIDE so the pike (hips high) and your bending arms are visible.',
-    summary: 'The shoulder press — your path to handstand push-ups. Hips high, lower your head.',
-    howTo: ['Downward-dog pike, hips high.', 'Hands shoulder-width, head between your arms.', 'Bend elbows to lower toward the floor.', 'Press back to a straight-arm pike.'],
-    cues: [
-      'Hips stay high, in an inverted-V the whole set',
-      'Head aims for a spot just in front of your hands, not straight down',
-      'Elbows track forward and slightly out, not straight back',
-      'Full press to a straight-arm pike at the top',
-      'Walk your feet closer to your hands for a steeper, harder angle',
-      'Keep your core braced so your hips don\'t sag as you fatigue',
-      'Exhale as you press away from the floor',
-      'This builds toward handstand push-ups — treat it as a strength builder',
-      'Elevate your feet on a box to increase the incline and difficulty',
-      'Control the lowering phase — don\'t let gravity do all the work',
-      'Keep your neck relaxed — don\'t crane it to look forward',
-      'If your wrists ache, spread your fingers wide and grip the floor',
-    ],
-    angles: ELBOW, rep: { angle: 'elbow', downBelow: 118, upAbove: 145 }, targetAngle: 90,
-    gauge: { angle: 'elbow', label: 'Depth', downBelow: 118, upAbove: 145, target: 90 },
-    formRules: [
-      { id: 'shallow', bodyPart: 'arm', cue: 'Go deeper', say: 'Lower your head closer to the floor — aim for a 90° elbow bend.', severity: 'info', test: ({ angles }) => angles.elbow != null && angles.elbow > 110 && angles.elbow < 145 },
-      { id: 'hips-dropping', bodyPart: 'torso', cue: 'Keep hips high', say: 'Your hips are dropping — keep them stacked above your shoulders.', severity: 'warn', test: ({ landmarks }) => {
-          const lh = landmarks[L.LeftHip]; const ls = landmarks[L.LeftShoulder];
-          return lh != null && ls != null && lh.visibility >= 0.5 && ls.visibility >= 0.5
-            ? (lh.y - ls.y) > 0.15 : false;
+      { id: 'uneven-arms', bodyPart: 'arm', cue: 'Press evenly with both arms', say: 'One arm is pressing more than the other — press evenly on both sides.', severity: 'warn', test: ({ landmarks, angles }) => {
+          if (angles.elbow == null || angles.elbow > 155) return false;
+          const le = landmarks[L.LeftElbow]; const re = landmarks[L.RightElbow];
+          if (!allVisible(landmarks, [L.LeftShoulder, L.LeftElbow, L.LeftWrist, L.RightShoulder, L.RightElbow, L.RightWrist], 0.5) || !le || !re) return false;
+          const left = jointAngle(landmarks[L.LeftShoulder], le, landmarks[L.LeftWrist]);
+          const right = jointAngle(landmarks[L.RightShoulder], re, landmarks[L.RightWrist]);
+          return Math.abs(left - right) > 25;
       }},
     ],
   }),
@@ -502,21 +1020,43 @@ export const EXERCISES: Exercise[] = [
       'Breathe — don\'t hold your breath while balancing',
       'A few short daily holds beat one long weekly session',
     ],
-    angles: (lms) => ({ ...BODYLINE(lms), ...KNEE(lms), lean: verticalDeviation(lms[L.LeftShoulder], lms[L.LeftHip]) }),
-    hold: { angle: 'bodyLine', minOk: 45, maxOk: 180 }, targetAngle: 178,
-    gauge: { angle: 'bodyLine', label: 'Straightness', downBelow: 120, upAbove: 160, target: 178 },
+    angles: INVERTED_PRESS,
+    // minOk dropped to 40 — a straight handstand is 178°, but arches and
+    // slight form breaks shouldn't kill the hold clock. Only feet-on-floor
+    // (fails the gate) or severe knee bend / tuck planche (drops bodyLine
+    // below 40) stops the count. Form rules still flag quality separately.
+    hold: { angle: 'bodyLine', minOk: 40, maxOk: 180 }, targetAngle: 178,
+    gauge: { angle: 'bodyLine', label: 'Straightness', downBelow: 40, upAbove: 180, target: 178 },
     formRules: [
       // Live-only nudge; it never affects the score (holds score on straightness).
       // Only call an "arch" when the knees are straight — bent knees also drop
       // the body line, but that's a tuck, not a banana.
       { id: 'banana', bodyPart: 'torso', cue: 'Straighten — squeeze your line', say: 'You are arching your back. Flex your abs and squeeze your legs together.', severity: 'warn', test: ({ angles }) => angles.bodyLine != null && angles.bodyLine < 160 && angles.knee != null && angles.knee > 140 },
-      { id: 'bent-knees', bodyPart: 'leg', cue: 'Straighten and squeeze your legs', say: 'Point your toes and squeeze your legs together — no bent knees.', severity: 'info', test: ({ angles }) => angles.knee != null && angles.knee < 140 },
+      { id: 'bent-knees', bodyPart: 'leg', cue: 'Straighten and squeeze your legs', say: 'Point your toes and squeeze your legs together — no bent knees.', severity: 'info', test: ({ angles }) => angles.knee != null && angles.knee < 140 && angles.knee >= 100 },
+      { id: 'bent-knees-severe', bodyPart: 'leg', cue: 'Straighten your legs', say: 'Your knees are badly bent — that\'s a tuck, not a handstand line.', severity: 'warn', test: ({ angles }) => angles.knee != null && angles.knee < 100 },
       { id: 'gaze', bodyPart: 'torso', cue: 'Gaze between your hands', say: 'Look between your hands — don\'t look back at the floor.', severity: 'info', test: ({ landmarks }) => {
           const nose = landmarks[L.Nose]; const lw = landmarks[L.LeftWrist]; const rw = landmarks[L.RightWrist];
           if (!nose || !lw || !rw) return false;
           if (nose.visibility < 0.5 || lw.visibility < 0.5 || rw.visibility < 0.5) return false;
           const handX = (lw.x + rw.x) / 2;
           return Math.abs(nose.x - handX) > 0.1;
+      }},
+      { id: 'bent-arms', bodyPart: 'arm', cue: 'Push your arms straight', say: 'Lock your arms — a soft elbow makes balance much harder.', severity: 'warn', test: ({ angles }) => angles.elbow != null && angles.elbow < 160 },
+      { id: 'not-stacked', bodyPart: 'torso', cue: 'Stack your hips over your shoulders', say: 'Your hips aren\'t stacked over your shoulders — that\'s the base of the whole balance.', severity: 'warn', test: ({ angles }) => angles.lean != null && angles.lean > 15 },
+      { id: 'not-balanced', bodyPart: 'arm', cue: 'Stack your shoulders over your wrists', say: 'Your shoulders have drifted away from over your wrists — that\'s what\'s pulling you off balance.', severity: 'warn', test: ({ landmarks }) => { const o = stackOffset(landmarks, L.LeftShoulder, L.RightShoulder); return o != null && o > 0.4; } },
+      { id: 'legs-apart', bodyPart: 'leg', cue: 'Squeeze your legs together', say: 'Point your toes and squeeze your legs together for a tighter line.', severity: 'info', test: ({ landmarks }) => {
+          const scale = torsoScale(landmarks);
+          const la = landmarks[L.LeftAnkle]; const ra = landmarks[L.RightAnkle];
+          if (scale == null || scale < 1e-4 || !la || !ra || la.visibility < 0.5 || ra.visibility < 0.5) return false;
+          return Math.abs(la.x - ra.x) / scale > 0.3;
+      }},
+      { id: 'uneven-arms', bodyPart: 'arm', cue: 'Push evenly through both arms', say: 'One arm is taking more of the load than the other — push evenly through both.', severity: 'warn', test: ({ landmarks, angles }) => {
+          if (angles.elbow == null) return false;
+          const le = landmarks[L.LeftElbow]; const re = landmarks[L.RightElbow];
+          if (!allVisible(landmarks, [L.LeftShoulder, L.LeftElbow, L.LeftWrist, L.RightShoulder, L.RightElbow, L.RightWrist], 0.5) || !le || !re) return false;
+          const left = jointAngle(landmarks[L.LeftShoulder], le, landmarks[L.LeftWrist]);
+          const right = jointAngle(landmarks[L.RightShoulder], re, landmarks[L.RightWrist]);
+          return Math.abs(left - right) > 20;
       }},
     ],
   }),
@@ -547,12 +1087,41 @@ export const EXERCISES: Exercise[] = [
     formRules: [
       { id: 'locked-arms', bodyPart: 'arm', cue: 'Lock your arms', say: 'Fully extend your elbows — straight arms.', severity: 'warn', test: ({ angles }) => angles.elbow != null && angles.elbow < 160 },
       { id: 'feet-up', cue: 'Lift your feet', say: 'Pull your feet off the floor — float.', severity: 'info', test: ({ landmarks }) => {
+          // Missing data must never invent a fault — only flag when both
+          // points are actually visible and the feet are confirmed low.
           const a = pairY(landmarks, L.LeftAnkle, L.RightAnkle, 'min');
           const w = pairY(landmarks, L.LeftWrist, L.RightWrist);
-          return a == null || w == null || a > w - 0.02;
+          return a != null && w != null && a > w - 0.02;
       }},
       { id: 'tuck-tight', bodyPart: 'leg', cue: 'Pull knees tighter', say: 'Squeeze your knees closer to your chest.', severity: 'info', test: ({ angles }) => angles.hip != null && angles.hip > 75 && angles.hip < 100 },
+      { id: 'flat-back-mild', bodyPart: 'torso', cue: 'Tighten your back flat', say: 'Start flattening your back before it becomes a real pike.', severity: 'info', test: ({ angles }) => angles.bodyLine != null && angles.bodyLine < 155 && angles.bodyLine >= 140 },
       { id: 'flat-back', bodyPart: 'torso', cue: 'Straighten your back', say: 'Don\'t pike — keep your back flat and parallel to the floor.', severity: 'warn', test: ({ angles }) => angles.bodyLine != null && angles.bodyLine < 140 },
+      { id: 'shrug', bodyPart: 'arm', cue: 'Protract, don\'t shrug', say: 'Push your shoulder blades away from your ears — protract, don\'t shrug.', severity: 'info', test: ({ landmarks }) => { const g = shrugGap(landmarks); return g != null && g < 0.15; } },
+      { id: 'uneven-arms', bodyPart: 'arm', cue: 'Even out both arms', say: 'One arm is taking more of the load than the other — even out the support.', severity: 'warn', test: ({ landmarks, angles }) => {
+          if (angles.elbow == null) return false;
+          const le = landmarks[L.LeftElbow]; const re = landmarks[L.RightElbow];
+          if (!allVisible(landmarks, [L.LeftShoulder, L.LeftElbow, L.LeftWrist, L.RightShoulder, L.RightElbow, L.RightWrist], 0.5) || !le || !re) return false;
+          const left = jointAngle(landmarks[L.LeftShoulder], le, landmarks[L.LeftWrist]);
+          const right = jointAngle(landmarks[L.RightShoulder], re, landmarks[L.RightWrist]);
+          return Math.abs(left - right) > 20;
+      }},
+      { id: 'knees-apart', bodyPart: 'leg', cue: 'Squeeze your knees together', say: 'Keep your knees together for a tighter, more compact tuck.', severity: 'info', test: ({ landmarks }) => {
+          const scale = torsoScale(landmarks);
+          const lk = landmarks[L.LeftKnee]; const rk = landmarks[L.RightKnee];
+          if (scale == null || scale < 1e-4 || !lk || !rk || lk.visibility < 0.5 || rk.visibility < 0.5) return false;
+          return Math.abs(lk.x - rk.x) / scale > 0.3;
+      }},
+      // Unlike plank/handstand, MORE lean is correct here — the position is
+      // physically impossible without leaning forward at all, so a SMALL
+      // shoulder-to-wrist offset means under-leaning (not yet forward enough
+      // for this progression), not good "stacking".
+      { id: 'lean-more', bodyPart: 'arm', cue: 'Lean your shoulders past your hands', say: 'Lean your shoulders further forward, well past your hands.', severity: 'info', test: ({ landmarks }) => { const o = stackOffset(landmarks, L.LeftShoulder, L.RightShoulder); return o != null && o < 0.3; } },
+      { id: 'gaze', bodyPart: 'torso', cue: 'Keep your gaze forward', say: 'Keep your neck neutral, gaze slightly forward of your hands.', severity: 'info', test: ({ landmarks }) => {
+          const nose = landmarks[L.Nose]; const lw = landmarks[L.LeftWrist]; const rw = landmarks[L.RightWrist];
+          if (!nose || !lw || !rw || nose.visibility < 0.5 || lw.visibility < 0.5 || rw.visibility < 0.5) return false;
+          const handX = (lw.x + rw.x) / 2;
+          return Math.abs(nose.x - handX) > 0.15;
+      }},
     ],
   }),
   def({
@@ -580,12 +1149,36 @@ export const EXERCISES: Exercise[] = [
     gauge: { angle: 'hip', label: 'Open', downBelow: 80, upAbove: 135, target: 110 },
     formRules: [
       { id: 'locked-arms', bodyPart: 'arm', cue: 'Lock your arms', say: 'Fully extend your elbows — straight arms.', severity: 'warn', test: ({ angles }) => angles.elbow != null && angles.elbow < 160 },
+      { id: 'flat-back-mild', bodyPart: 'torso', cue: 'Tighten your back flat', say: 'Start flattening your back before it becomes a real sag or pike.', severity: 'info', test: ({ angles }) => angles.bodyLine != null && angles.bodyLine < 155 && angles.bodyLine >= 140 },
       { id: 'flat-back', bodyPart: 'torso', cue: 'Straighten your back', say: 'Keep your back flat — don\'t sag or pike.', severity: 'warn', test: ({ angles }) => angles.bodyLine != null && angles.bodyLine < 140 },
       { id: 'feet-up', cue: 'Don\'t touch the floor', say: 'Keep your feet off the floor.', severity: 'info', test: ({ landmarks }) => {
+          // Missing data must never invent a fault — only flag when both
+          // points are actually visible and the feet are confirmed low.
           const a = pairY(landmarks, L.LeftAnkle, L.RightAnkle, 'min');
           const w = pairY(landmarks, L.LeftWrist, L.RightWrist);
-          return a == null || w == null || a > w - 0.02;
+          return a != null && w != null && a > w - 0.02;
       }},
+      { id: 'hips-not-level', bodyPart: 'torso', cue: 'Level your hips with your shoulders', say: 'Your hips should sit roughly level with your shoulders at this stage — adjust the opening.', severity: 'warn', test: ({ landmarks }) => {
+          const h = pairY(landmarks, L.LeftHip, L.RightHip);
+          const s = pairY(landmarks, L.LeftShoulder, L.RightShoulder);
+          return h != null && s != null && Math.abs(h - s) > 0.12;
+      }},
+      { id: 'shrug', bodyPart: 'arm', cue: 'Protract, don\'t shrug', say: 'Push your shoulder blades away from your ears — protract, don\'t shrug.', severity: 'info', test: ({ landmarks }) => { const g = shrugGap(landmarks); return g != null && g < 0.15; } },
+      { id: 'uneven-arms', bodyPart: 'arm', cue: 'Even out both arms', say: 'One arm is taking more of the load than the other — even out the support.', severity: 'warn', test: ({ landmarks, angles }) => {
+          if (angles.elbow == null) return false;
+          const le = landmarks[L.LeftElbow]; const re = landmarks[L.RightElbow];
+          if (!allVisible(landmarks, [L.LeftShoulder, L.LeftElbow, L.LeftWrist, L.RightShoulder, L.RightElbow, L.RightWrist], 0.5) || !le || !re) return false;
+          const left = jointAngle(landmarks[L.LeftShoulder], le, landmarks[L.LeftWrist]);
+          const right = jointAngle(landmarks[L.RightShoulder], re, landmarks[L.RightWrist]);
+          return Math.abs(left - right) > 20;
+      }},
+      { id: 'knees-apart', bodyPart: 'leg', cue: 'Squeeze your knees together', say: 'Keep your knees together for a tighter line.', severity: 'info', test: ({ landmarks }) => {
+          const scale = torsoScale(landmarks);
+          const lk = landmarks[L.LeftKnee]; const rk = landmarks[L.RightKnee];
+          if (scale == null || scale < 1e-4 || !lk || !rk || lk.visibility < 0.5 || rk.visibility < 0.5) return false;
+          return Math.abs(lk.x - rk.x) / scale > 0.3;
+      }},
+      { id: 'lean-more', bodyPart: 'arm', cue: 'Lean your shoulders past your hands', say: 'Lean your shoulders further forward, well past your hands.', severity: 'info', test: ({ landmarks }) => { const o = stackOffset(landmarks, L.LeftShoulder, L.RightShoulder); return o != null && o < 0.3; } },
     ],
   }),
   def({
@@ -609,20 +1202,49 @@ export const EXERCISES: Exercise[] = [
       'Build through the tuck and straddle progressions rather than rushing here',
       'Rest 2–3 minutes between attempts — this is a max-strength skill',
     ],
-    angles: ELBOW_HIP_BODY, hold: { angle: 'bodyLine', minOk: 125, maxOk: 180 }, targetAngle: 178,
-    gauge: { angle: 'hip', label: 'Extension', downBelow: 20, upAbove: 80, target: 50 },
+    // FIXED (B7): angles was ELBOW_HIP_BODY, which never produces `knee` —
+    // the 'bent-knees' rule below tested against `undefined` forever.
+    // FIXED (B16): gauge was copy-pasted from tuck-planche (hip 20-80,
+    // target 50 — a tucked shape) onto the FULL planche, whose own hold/
+    // targetAngle track bodyLine at 125-180/178. The live bar was reading a
+    // tucked shape as perfect and a real full planche as failing.
+    angles: ELBOW_HIP_BODY_KNEE, hold: { angle: 'bodyLine', minOk: 125, maxOk: 180 }, targetAngle: 178,
+    gauge: { angle: 'bodyLine', label: 'Extension', downBelow: 120, upAbove: 180, target: 178 },
     formRules: [
       { id: 'locked-arms', bodyPart: 'arm', cue: 'Lock your arms', say: 'Straight arms — don\'t bend your elbows.', severity: 'warn', test: ({ angles }) => angles.elbow != null && angles.elbow < 160 },
       { id: 'bent-knees', bodyPart: 'leg', cue: 'Straighten your legs', say: 'Point your toes and squeeze your legs together.', severity: 'warn', test: ({ angles }) => angles.knee != null && angles.knee < 160 },
-      { id: 'flat-back', bodyPart: 'torso', cue: 'Straighten your back', say: 'Keep your back flat and parallel to the floor.', severity: 'warn', test: ({ angles }) => angles.bodyLine != null && angles.bodyLine < 150 },
-      { id: 'hips-low', bodyPart: 'torso', cue: 'Lift your hips', say: 'Your hips are sagging — squeeze your glutes to lift.', severity: 'warn', test: ({ angles }) => angles.bodyLine != null && angles.bodyLine < 145 },
+      // flat-back (mild) and hips-low (real fault) now split the SAME metric
+      // into non-overlapping bands instead of two warns on overlapping
+      // ranges (145 was a strict subset of 150) — that used to double-tally
+      // one deviation as two differently-worded faults.
+      { id: 'flat-back', bodyPart: 'torso', cue: 'Straighten your back', say: 'Keep your back flat and parallel to the floor.', severity: 'info', test: ({ angles }) => angles.bodyLine != null && angles.bodyLine < 165 && angles.bodyLine >= 150 },
+      { id: 'hips-low', bodyPart: 'torso', cue: 'Lift your hips', say: 'Your hips are sagging — squeeze your glutes to lift.', severity: 'warn', test: ({ angles }) => angles.bodyLine != null && angles.bodyLine < 150 },
+      { id: 'shrug', bodyPart: 'arm', cue: 'Protract, don\'t shrug', say: 'Push your shoulder blades away from your ears — protract, don\'t shrug.', severity: 'info', test: ({ landmarks }) => { const g = shrugGap(landmarks); return g != null && g < 0.15; } },
+      { id: 'uneven-arms', bodyPart: 'arm', cue: 'Even out both arms', say: 'One arm is taking more of the load than the other — even out the support.', severity: 'warn', test: ({ landmarks, angles }) => {
+          if (angles.elbow == null) return false;
+          const le = landmarks[L.LeftElbow]; const re = landmarks[L.RightElbow];
+          if (!allVisible(landmarks, [L.LeftShoulder, L.LeftElbow, L.LeftWrist, L.RightShoulder, L.RightElbow, L.RightWrist], 0.5) || !le || !re) return false;
+          const left = jointAngle(landmarks[L.LeftShoulder], le, landmarks[L.LeftWrist]);
+          const right = jointAngle(landmarks[L.RightShoulder], re, landmarks[L.RightWrist]);
+          return Math.abs(left - right) > 20;
+      }},
+      { id: 'legs-apart', bodyPart: 'leg', cue: 'Squeeze your legs together', say: 'Point your toes and squeeze your legs together.', severity: 'info', test: ({ landmarks }) => {
+          const scale = torsoScale(landmarks);
+          const la = landmarks[L.LeftAnkle]; const ra = landmarks[L.RightAnkle];
+          if (scale == null || scale < 1e-4 || !la || !ra || la.visibility < 0.5 || ra.visibility < 0.5) return false;
+          return Math.abs(la.x - ra.x) / scale > 0.3;
+      }},
+      { id: 'lean-more', bodyPart: 'arm', cue: 'Lean your shoulders past your hands', say: 'Lean your shoulders further forward, well past your hands.', severity: 'info', test: ({ landmarks }) => { const o = stackOffset(landmarks, L.LeftShoulder, L.RightShoulder); return o != null && o < 0.3; } },
     ],
   }),
   // ───────── Front Lever path (side view, holds, bar) ─────────
   def({
     slug: 'tuck-front-lever', name: 'Tuck Front Lever', category: 'core', mode: 'hold', family: 'front-lever', level: 1,
     muscles: ['back', 'core', 'biceps'], view: 'side', requiredJoints: ARMS, showBar: true,
-    gate: ({ landmarks }) => isHangingOnBar(landmarks),
+    // isHangingOnBar alone also passes while just hanging — the hip hold
+    // window (5-90°) filters this in practice (a dead hang is ~180°), but
+    // requiring horizontality gives a cleaner gate that matches the exercise.
+    gate: ({ landmarks }) => isHangingOnBar(landmarks) && isHorizontal(landmarks, 0.15),
     setup: 'Film your SIDE from 2–3 m. Hanging from the bar, knees tucked to your chest.',
     summary: 'Front lever progression. Hang and hold your knees to your chest, body level.',
     howTo: ['Hang from the bar with straight arms.', 'Pull your knees to your chest.', 'Rotate your back so your shoulders are roughly level with your hips.', 'Hold the tuck, breathing steadily.'],
@@ -648,14 +1270,54 @@ export const EXERCISES: Exercise[] = [
       { id: 'hips-dropping', bodyPart: 'torso', cue: 'Level your hips', say: 'Lift your hips — your body should be horizontal.', severity: 'warn', test: ({ landmarks }) => {
           const h = pairY(landmarks, L.LeftHip, L.RightHip);
           const s = pairY(landmarks, L.LeftShoulder, L.RightShoulder);
-          return h != null && s != null && (h - s) > 0.12;
+          if (h == null || s == null) return false;
+          const scale = torsoScale(landmarks);
+          return scale != null && scale > 1e-4 && (h - s) / scale > 0.2;
+      }},
+      { id: 'shrug', bodyPart: 'arm', cue: 'Pull your shoulder blades down', say: 'Squeeze your shoulder blades down and back instead of shrugging up.', severity: 'info', test: ({ landmarks }) => { const g = shrugGap(landmarks); return g != null && g < 0.15; } },
+      { id: 'hands-wide', bodyPart: 'arm', cue: 'Bring your hands in slightly', say: 'A very wide grip adds shoulder strain — just outside shoulder width is plenty.', severity: 'info', test: ({ landmarks }) => {
+          const sw = shoulderWidth(landmarks);
+          const lw = landmarks[L.LeftWrist]; const rw = landmarks[L.RightWrist];
+          if (sw == null || sw < 1e-4 || !lw || !rw || lw.visibility < 0.5 || rw.visibility < 0.5) return false;
+          return Math.abs(lw.x - rw.x) / sw > 2.2;
+      }},
+      { id: 'hands-narrow', bodyPart: 'arm', cue: 'Widen your grip slightly', say: 'A very narrow grip strains your wrists — widen to just outside shoulder width.', severity: 'info', test: ({ landmarks }) => {
+          const sw = shoulderWidth(landmarks);
+          const lw = landmarks[L.LeftWrist]; const rw = landmarks[L.RightWrist];
+          if (sw == null || sw < 1e-4 || !lw || !rw || lw.visibility < 0.5 || rw.visibility < 0.5) return false;
+          return Math.abs(lw.x - rw.x) / sw < 0.9;
+      }},
+      { id: 'uneven-arms', bodyPart: 'arm', cue: 'Even out both arms', say: 'One arm is more locked out than the other — even out the load on both sides.', severity: 'warn', test: ({ landmarks, angles }) => {
+          if (angles.elbow == null) return false;
+          const le = landmarks[L.LeftElbow]; const re = landmarks[L.RightElbow];
+          if (!allVisible(landmarks, [L.LeftShoulder, L.LeftElbow, L.LeftWrist, L.RightShoulder, L.RightElbow, L.RightWrist], 0.5) || !le || !re) return false;
+          const left = jointAngle(landmarks[L.LeftShoulder], le, landmarks[L.LeftWrist]);
+          const right = jointAngle(landmarks[L.RightShoulder], re, landmarks[L.RightWrist]);
+          return Math.abs(left - right) > 25;
+      }},
+      { id: 'shoulder-tilt', bodyPart: 'torso', cue: 'Keep your shoulders level', say: 'You\'re rotating around the bar — keep your shoulders level.', severity: 'warn', test: ({ landmarks }) => {
+          const scale = torsoScale(landmarks);
+          const ls = landmarks[L.LeftShoulder]; const rs = landmarks[L.RightShoulder];
+          if (scale == null || scale < 1e-4 || !ls || !rs || ls.visibility < 0.5 || rs.visibility < 0.5) return false;
+          return Math.abs(ls.y - rs.y) / scale > 0.3;
+      }},
+      { id: 'neck', bodyPart: 'torso', cue: 'Keep your neck relaxed', say: 'Keep your chin slightly tucked, not craned up.', severity: 'info', test: ({ landmarks }) => {
+          const nose = landmarks[L.Nose]; const ls = landmarks[L.LeftShoulder];
+          return nose != null && ls != null && nose.visibility >= 0.5 && ls.visibility >= 0.5
+            ? Math.abs(nose.x - ls.x) > 0.06 : false;
+      }},
+      { id: 'knees-apart', bodyPart: 'leg', cue: 'Squeeze your knees together', say: 'Keep your knees together for a tighter, easier tuck.', severity: 'info', test: ({ landmarks }) => {
+          const scale = torsoScale(landmarks);
+          const lk = landmarks[L.LeftKnee]; const rk = landmarks[L.RightKnee];
+          if (scale == null || scale < 1e-4 || !lk || !rk || lk.visibility < 0.5 || rk.visibility < 0.5) return false;
+          return Math.abs(lk.x - rk.x) / scale > 0.3;
       }},
     ],
   }),
   def({
     slug: 'adv-tuck-front-lever', name: 'Advanced Tuck Front Lever', category: 'core', mode: 'hold', family: 'front-lever', level: 2,
     muscles: ['back', 'core', 'biceps'], view: 'side', requiredJoints: ARMS, showBar: true,
-    gate: ({ landmarks }) => isHangingOnBar(landmarks),
+    gate: ({ landmarks }) => isHangingOnBar(landmarks) && isHorizontal(landmarks, 0.15),
     setup: 'Film your SIDE. Hanging from the bar with knees extended further back than tuck.',
     summary: 'Front lever progression. Hips open more, knees pulled back toward the bar.',
     howTo: ['Hang from the bar with straight arms.', 'Pull your knees up but extend them back behind you.', 'Rotate your body horizontal.', 'Hold — back flat, arms straight.'],
@@ -677,17 +1339,63 @@ export const EXERCISES: Exercise[] = [
     gauge: { angle: 'hip', label: 'Open', downBelow: 65, upAbove: 120, target: 90 },
     formRules: [
       { id: 'bent-arms', bodyPart: 'arm', cue: 'Straight arms', say: 'Keep your arms locked.', severity: 'warn', test: ({ angles }) => angles.elbow != null && angles.elbow < 160 },
+      { id: 'too-tucked', bodyPart: 'leg', cue: 'Open your hips a bit more', say: 'Extend your knees back a bit further than a basic tuck.', severity: 'info', test: ({ angles }) => angles.hip != null && angles.hip >= 50 && angles.hip < 80 },
       { id: 'hips-dropping', bodyPart: 'torso', cue: 'Level your hips', say: 'Bring your hips level with your shoulders.', severity: 'warn', test: ({ landmarks }) => {
           const h = pairY(landmarks, L.LeftHip, L.RightHip);
           const s = pairY(landmarks, L.LeftShoulder, L.RightShoulder);
-          return h != null && s != null && (h - s) > 0.12;
+          if (h == null || s == null) return false;
+          const scale = torsoScale(landmarks);
+          return scale != null && scale > 1e-4 && (h - s) / scale > 0.2;
+      }},
+      { id: 'shrug', bodyPart: 'arm', cue: 'Pull your shoulder blades down', say: 'Squeeze your shoulder blades down and back instead of shrugging up.', severity: 'info', test: ({ landmarks }) => { const g = shrugGap(landmarks); return g != null && g < 0.15; } },
+      { id: 'hands-wide', bodyPart: 'arm', cue: 'Bring your hands in slightly', say: 'A very wide grip adds shoulder strain — just outside shoulder width is plenty.', severity: 'info', test: ({ landmarks }) => {
+          const sw = shoulderWidth(landmarks);
+          const lw = landmarks[L.LeftWrist]; const rw = landmarks[L.RightWrist];
+          if (sw == null || sw < 1e-4 || !lw || !rw || lw.visibility < 0.5 || rw.visibility < 0.5) return false;
+          return Math.abs(lw.x - rw.x) / sw > 2.2;
+      }},
+      { id: 'hands-narrow', bodyPart: 'arm', cue: 'Widen your grip slightly', say: 'A very narrow grip strains your wrists — widen to just outside shoulder width.', severity: 'info', test: ({ landmarks }) => {
+          const sw = shoulderWidth(landmarks);
+          const lw = landmarks[L.LeftWrist]; const rw = landmarks[L.RightWrist];
+          if (sw == null || sw < 1e-4 || !lw || !rw || lw.visibility < 0.5 || rw.visibility < 0.5) return false;
+          return Math.abs(lw.x - rw.x) / sw < 0.9;
+      }},
+      { id: 'uneven-arms', bodyPart: 'arm', cue: 'Even out both arms', say: 'One arm is more locked out than the other — even out the load on both sides.', severity: 'warn', test: ({ landmarks, angles }) => {
+          if (angles.elbow == null) return false;
+          const le = landmarks[L.LeftElbow]; const re = landmarks[L.RightElbow];
+          if (!allVisible(landmarks, [L.LeftShoulder, L.LeftElbow, L.LeftWrist, L.RightShoulder, L.RightElbow, L.RightWrist], 0.5) || !le || !re) return false;
+          const left = jointAngle(landmarks[L.LeftShoulder], le, landmarks[L.LeftWrist]);
+          const right = jointAngle(landmarks[L.RightShoulder], re, landmarks[L.RightWrist]);
+          return Math.abs(left - right) > 25;
+      }},
+      { id: 'shoulder-tilt', bodyPart: 'torso', cue: 'Keep your shoulders level', say: 'You\'re rotating around the bar — keep your shoulders level.', severity: 'warn', test: ({ landmarks }) => {
+          const scale = torsoScale(landmarks);
+          const ls = landmarks[L.LeftShoulder]; const rs = landmarks[L.RightShoulder];
+          if (scale == null || scale < 1e-4 || !ls || !rs || ls.visibility < 0.5 || rs.visibility < 0.5) return false;
+          return Math.abs(ls.y - rs.y) / scale > 0.3;
+      }},
+      { id: 'neck', bodyPart: 'torso', cue: 'Keep your neck relaxed', say: 'Keep your chin slightly tucked, not craned up.', severity: 'info', test: ({ landmarks }) => {
+          const nose = landmarks[L.Nose]; const ls = landmarks[L.LeftShoulder];
+          return nose != null && ls != null && nose.visibility >= 0.5 && ls.visibility >= 0.5
+            ? Math.abs(nose.x - ls.x) > 0.06 : false;
+      }},
+      { id: 'knees-apart', bodyPart: 'leg', cue: 'Squeeze your knees together', say: 'Keep your knees together for a tighter line.', severity: 'info', test: ({ landmarks }) => {
+          const scale = torsoScale(landmarks);
+          const lk = landmarks[L.LeftKnee]; const rk = landmarks[L.RightKnee];
+          if (scale == null || scale < 1e-4 || !lk || !rk || lk.visibility < 0.5 || rk.visibility < 0.5) return false;
+          return Math.abs(lk.x - rk.x) / scale > 0.3;
       }},
     ],
   }),
   def({
     slug: 'front-lever', name: 'Front Lever', category: 'core', mode: 'hold', family: 'front-lever', level: 3,
     muscles: ['back', 'core', 'biceps', 'shoulders'], view: 'side', requiredJoints: ARMS, showBar: true,
-    gate: ({ landmarks }) => isHangingOnBar(landmarks),
+    // isHangingOnBar alone lets the clock run while just hanging straight down
+    // — bodyLine is ~175-180° in a dead hang, which falls INSIDE the hold
+    // window (125-180). Requiring the body to be roughly horizontal closes
+    // this gap: a real front lever has hips and shoulders at similar screen y
+    // (the body is horizontal), a dead hang drops the hips well below.
+    gate: ({ landmarks }) => isHangingOnBar(landmarks) && isHorizontal(landmarks, 0.12),
     setup: 'Film your SIDE. Full front lever — body horizontal, legs straight, arms locked.',
     summary: 'Ultimate pulling static hold. Body parallel to the floor, hanging from the bar.',
     howTo: ['Hang from the bar with straight arms.', 'Pull your entire body up and back.', 'Rotate until you\'re horizontal, legs straight.', 'Squeeze everything and hold.'],
@@ -705,12 +1413,55 @@ export const EXERCISES: Exercise[] = [
       'Rest 2–3 minutes between attempts — full recovery matters for skill work',
       'Keep your neck neutral and gaze forward, not down at your feet',
     ],
-    angles: ELBOW_HIP_BODY, hold: { angle: 'bodyLine', minOk: 125, maxOk: 180 }, targetAngle: 178,
-    gauge: { angle: 'bodyLine', label: 'Straightness', downBelow: 120, upAbove: 160, target: 178 },
+    // FIXED (B7): this used ELBOW_HIP_BODY, which never produces a `knee`
+    // value — the 'bent-knees' rule below tested `angles.knee < 160` against
+    // `undefined` forever, so it could never fire. Swapped to the combinator
+    // that actually includes knee.
+    angles: ELBOW_HIP_BODY_KNEE, hold: { angle: 'bodyLine', minOk: 125, maxOk: 180 }, targetAngle: 178,
+    gauge: { angle: 'bodyLine', label: 'Straightness', downBelow: 120, upAbove: 180, target: 178 },
     formRules: [
       { id: 'bent-arms', bodyPart: 'arm', cue: 'Straight arms', say: 'Lock your arms completely.', severity: 'warn', test: ({ angles }) => angles.elbow != null && angles.elbow < 160 },
       { id: 'bent-knees', bodyPart: 'leg', cue: 'Straighten your legs', say: 'Lock your knees and point your toes.', severity: 'warn', test: ({ angles }) => angles.knee != null && angles.knee < 160 },
       { id: 'sag', bodyPart: 'torso', cue: 'Lift your hips', say: 'Your body is sagging — squeeze your glutes and lats to pull horizontal.', severity: 'warn', test: ({ angles }) => angles.bodyLine != null && angles.bodyLine < 150 },
+      { id: 'hip-creep', bodyPart: 'torso', cue: 'Fight the tuck', say: 'Your hips are drawing in toward a tuck — fight to keep full extension at the hip.', severity: 'info', test: ({ angles }) => angles.hip != null && angles.hip < 150 },
+      { id: 'shrug', bodyPart: 'arm', cue: 'Pull your shoulder blades down', say: 'Pull your shoulder blades down and back hard instead of shrugging up.', severity: 'info', test: ({ landmarks }) => { const g = shrugGap(landmarks); return g != null && g < 0.15; } },
+      { id: 'hands-wide', bodyPart: 'arm', cue: 'Bring your hands in slightly', say: 'A very wide grip adds shoulder strain — just outside shoulder width is plenty.', severity: 'info', test: ({ landmarks }) => {
+          const sw = shoulderWidth(landmarks);
+          const lw = landmarks[L.LeftWrist]; const rw = landmarks[L.RightWrist];
+          if (sw == null || sw < 1e-4 || !lw || !rw || lw.visibility < 0.5 || rw.visibility < 0.5) return false;
+          return Math.abs(lw.x - rw.x) / sw > 2.2;
+      }},
+      { id: 'hands-narrow', bodyPart: 'arm', cue: 'Widen your grip slightly', say: 'A very narrow grip strains your wrists — widen to just outside shoulder width.', severity: 'info', test: ({ landmarks }) => {
+          const sw = shoulderWidth(landmarks);
+          const lw = landmarks[L.LeftWrist]; const rw = landmarks[L.RightWrist];
+          if (sw == null || sw < 1e-4 || !lw || !rw || lw.visibility < 0.5 || rw.visibility < 0.5) return false;
+          return Math.abs(lw.x - rw.x) / sw < 0.9;
+      }},
+      { id: 'uneven-arms', bodyPart: 'arm', cue: 'Even out both arms', say: 'One arm is more locked out than the other — even out the load on both sides.', severity: 'warn', test: ({ landmarks, angles }) => {
+          if (angles.elbow == null) return false;
+          const le = landmarks[L.LeftElbow]; const re = landmarks[L.RightElbow];
+          if (!allVisible(landmarks, [L.LeftShoulder, L.LeftElbow, L.LeftWrist, L.RightShoulder, L.RightElbow, L.RightWrist], 0.5) || !le || !re) return false;
+          const left = jointAngle(landmarks[L.LeftShoulder], le, landmarks[L.LeftWrist]);
+          const right = jointAngle(landmarks[L.RightShoulder], re, landmarks[L.RightWrist]);
+          return Math.abs(left - right) > 25;
+      }},
+      { id: 'shoulder-tilt', bodyPart: 'torso', cue: 'Keep your shoulders level', say: 'You\'re rotating around the bar — keep your shoulders level.', severity: 'warn', test: ({ landmarks }) => {
+          const scale = torsoScale(landmarks);
+          const ls = landmarks[L.LeftShoulder]; const rs = landmarks[L.RightShoulder];
+          if (scale == null || scale < 1e-4 || !ls || !rs || ls.visibility < 0.5 || rs.visibility < 0.5) return false;
+          return Math.abs(ls.y - rs.y) / scale > 0.3;
+      }},
+      { id: 'neck', bodyPart: 'torso', cue: 'Keep your neck relaxed', say: 'Keep your neck neutral, gaze forward — not down at your feet.', severity: 'info', test: ({ landmarks }) => {
+          const nose = landmarks[L.Nose]; const ls = landmarks[L.LeftShoulder];
+          return nose != null && ls != null && nose.visibility >= 0.5 && ls.visibility >= 0.5
+            ? Math.abs(nose.x - ls.x) > 0.06 : false;
+      }},
+      { id: 'legs-apart', bodyPart: 'leg', cue: 'Squeeze your legs together', say: 'Point your toes and squeeze your legs together.', severity: 'info', test: ({ landmarks }) => {
+          const scale = torsoScale(landmarks);
+          const la = landmarks[L.LeftAnkle]; const ra = landmarks[L.RightAnkle];
+          if (scale == null || scale < 1e-4 || !la || !ra || la.visibility < 0.5 || ra.visibility < 0.5) return false;
+          return Math.abs(la.x - ra.x) / scale > 0.3;
+      }},
     ],
   }),
   // ───────── HeSPU / 90° Hold (side view) ─────────
@@ -735,12 +1486,38 @@ export const EXERCISES: Exercise[] = [
       'Warm up wrists and shoulders thoroughly before training this',
       'Progress from pike push-ups if full depth here is still out of reach',
     ],
-    angles: ELBOW_AND_BODYLINE,
+    angles: INVERTED_PRESS,
     rep: { angle: 'elbow', downBelow: 105, upAbove: 155 }, targetAngle: 75,
     gauge: { angle: 'elbow', label: 'Depth', downBelow: 105, upAbove: 155, target: 75 },
     formRules: [
+      { id: 'banana-mild', bodyPart: 'torso', cue: 'Tighten your line', say: 'Brace your abs — start tightening your line before it becomes a full arch.', severity: 'info', test: ({ angles }) => angles.bodyLine != null && angles.bodyLine < 165 && angles.bodyLine >= 155 },
       { id: 'banana', bodyPart: 'torso', cue: 'Straighten your line', say: 'Don\'t arch your back — squeeze your line tight.', severity: 'warn', test: ({ angles }) => angles.bodyLine != null && angles.bodyLine < 155 },
-      { id: 'shallow', bodyPart: 'arm', cue: 'Go deeper', say: 'Lower further — a full HSPU goes well past 90°, closer to a full bend.', severity: 'info', test: ({ angles }) => angles.elbow != null && angles.elbow > 115 },
+      { id: 'shallow', bodyPart: 'arm', cue: 'Go deeper', say: 'Lower further — a full HSPU goes well past 90°, closer to a full bend.', severity: 'info', test: ({ angles }) => angles.elbow != null && angles.elbow > 115 && angles.elbow < 150 },
+      { id: 'no-lockout', bodyPart: 'arm', cue: 'Lock out at the top', say: 'Press all the way to a full lockout at the top — straight arms every rep.', severity: 'info', test: ({ angles }) => angles.elbow != null && angles.elbow >= 150 && angles.elbow < 155 },
+      { id: 'bent-knees', bodyPart: 'leg', cue: 'Straighten and squeeze your legs', say: 'Point your toes and squeeze your legs together for a tighter, easier line.', severity: 'info', test: ({ angles }) => angles.knee != null && angles.knee < 140 },
+      { id: 'not-stacked', bodyPart: 'torso', cue: 'Stack your hips over your shoulders', say: 'Keep your hips stacked over your shoulders as you press — don\'t let them drift.', severity: 'warn', test: ({ angles }) => angles.lean != null && angles.lean > 15 },
+      { id: 'legs-apart', bodyPart: 'leg', cue: 'Squeeze your legs together', say: 'Squeeze your legs together for a tighter, easier line.', severity: 'info', test: ({ landmarks }) => {
+          const scale = torsoScale(landmarks);
+          const la = landmarks[L.LeftAnkle]; const ra = landmarks[L.RightAnkle];
+          if (scale == null || scale < 1e-4 || !la || !ra || la.visibility < 0.5 || ra.visibility < 0.5) return false;
+          return Math.abs(la.x - ra.x) / scale > 0.3;
+      }},
+      { id: 'uneven-arms', bodyPart: 'arm', cue: 'Press evenly with both arms', say: 'One arm is pressing more than the other — press evenly on both sides.', severity: 'warn', test: ({ landmarks, angles }) => {
+          if (angles.elbow == null || angles.elbow > 155) return false;
+          const le = landmarks[L.LeftElbow]; const re = landmarks[L.RightElbow];
+          if (!allVisible(landmarks, [L.LeftShoulder, L.LeftElbow, L.LeftWrist, L.RightShoulder, L.RightElbow, L.RightWrist], 0.5) || !le || !re) return false;
+          const left = jointAngle(landmarks[L.LeftShoulder], le, landmarks[L.LeftWrist]);
+          const right = jointAngle(landmarks[L.RightShoulder], re, landmarks[L.RightWrist]);
+          return Math.abs(left - right) > 25;
+      }},
+      { id: 'head-forward', bodyPart: 'torso', cue: 'Lower toward the floor, not forward', say: 'Lower your head toward the floor between your hands, not out in front of them.', severity: 'warn', test: ({ landmarks, angles }) => {
+          if (angles.elbow == null || angles.elbow > 130) return false;
+          const nose = landmarks[L.Nose]; const lw = landmarks[L.LeftWrist]; const rw = landmarks[L.RightWrist];
+          if (!nose || !lw || !rw || nose.visibility < 0.5 || lw.visibility < 0.5 || rw.visibility < 0.5) return false;
+          const handX = (lw.x + rw.x) / 2;
+          return Math.abs(nose.x - handX) > 0.15;
+      }},
+      { id: 'shrug', bodyPart: 'arm', cue: 'Relax your shoulders', say: 'Push your shoulders down away from your ears through the press.', severity: 'info', test: ({ landmarks }) => { const g = shrugGap(landmarks); return g != null && g < 0.15; } },
     ],
   }),
   def({
@@ -764,13 +1541,36 @@ export const EXERCISES: Exercise[] = [
       'This variation builds the strength that lets a full HSPU feel smooth, not just deep',
       'Rest 2–3 minutes between sets — partial-range pressing at the shoulders fatigues fast',
     ],
-    angles: ELBOW_AND_BODYLINE,
-    rep: { angle: 'elbow', downBelow: 100, upAbove: 125 }, targetAngle: 90,
-    gauge: { angle: 'elbow', label: '90° range', downBelow: 100, upAbove: 125, target: 90 },
+    angles: INVERTED_PRESS,
+    rep: { angle: 'elbow', downBelow: 95, upAbove: 130 }, targetAngle: 90,
+    gauge: { angle: 'elbow', label: '90° range', downBelow: 95, upAbove: 130, target: 90 },
     formRules: [
       { id: 'banana', bodyPart: 'torso', cue: 'Straighten your line', say: 'Don\'t arch your back — squeeze your line tight.', severity: 'warn', test: ({ angles }) => angles.bodyLine != null && angles.bodyLine < 155 },
       { id: 'too-deep', bodyPart: 'arm', cue: 'Stop at 90°', say: 'That\'s deeper than 90 — this variation stops there, it\'s not a full HSPU.', severity: 'info', test: ({ angles }) => angles.elbow != null && angles.elbow < 75 },
-      { id: 'locking-out', bodyPart: 'arm', cue: 'Don\'t lock out', say: 'You pressed to a full lockout — for the 90° variant, stop short of straightening all the way.', severity: 'info', test: ({ angles }) => angles.elbow != null && angles.elbow > 150 },
+      { id: 'locking-out', bodyPart: 'arm', cue: 'Don\'t lock out', say: 'You pressed to a full lockout — for the 90° variant, stop short of straightening all the way.', severity: 'info', test: ({ angles }) => angles.elbow != null && angles.elbow > 135 },
+      { id: 'bent-knees', bodyPart: 'leg', cue: 'Straighten and squeeze your legs', say: 'Point your toes and keep your legs together for a tighter, easier line.', severity: 'info', test: ({ angles }) => angles.knee != null && angles.knee < 140 },
+      { id: 'not-stacked', bodyPart: 'torso', cue: 'Stack your hips over your shoulders', say: 'Keep your hips stacked over your shoulders through the whole range.', severity: 'warn', test: ({ angles }) => angles.lean != null && angles.lean > 15 },
+      { id: 'legs-apart', bodyPart: 'leg', cue: 'Squeeze your legs together', say: 'Squeeze your legs together for a tighter, easier line.', severity: 'info', test: ({ landmarks }) => {
+          const scale = torsoScale(landmarks);
+          const la = landmarks[L.LeftAnkle]; const ra = landmarks[L.RightAnkle];
+          if (scale == null || scale < 1e-4 || !la || !ra || la.visibility < 0.5 || ra.visibility < 0.5) return false;
+          return Math.abs(la.x - ra.x) / scale > 0.3;
+      }},
+      { id: 'uneven-arms', bodyPart: 'arm', cue: 'Press evenly with both arms', say: 'One arm is pressing more than the other — press evenly on both sides.', severity: 'warn', test: ({ landmarks, angles }) => {
+          if (angles.elbow == null) return false;
+          const le = landmarks[L.LeftElbow]; const re = landmarks[L.RightElbow];
+          if (!allVisible(landmarks, [L.LeftShoulder, L.LeftElbow, L.LeftWrist, L.RightShoulder, L.RightElbow, L.RightWrist], 0.5) || !le || !re) return false;
+          const left = jointAngle(landmarks[L.LeftShoulder], le, landmarks[L.LeftWrist]);
+          const right = jointAngle(landmarks[L.RightShoulder], re, landmarks[L.RightWrist]);
+          return Math.abs(left - right) > 25;
+      }},
+      { id: 'head-forward', bodyPart: 'torso', cue: 'Head over your hands, not forward', say: 'Keep your head between your hands, not drifting out in front of them.', severity: 'warn', test: ({ landmarks }) => {
+          const nose = landmarks[L.Nose]; const lw = landmarks[L.LeftWrist]; const rw = landmarks[L.RightWrist];
+          if (!nose || !lw || !rw || nose.visibility < 0.5 || lw.visibility < 0.5 || rw.visibility < 0.5) return false;
+          const handX = (lw.x + rw.x) / 2;
+          return Math.abs(nose.x - handX) > 0.15;
+      }},
+      { id: 'shrug', bodyPart: 'arm', cue: 'Relax your shoulders', say: 'Push your shoulders down away from your ears through the range.', severity: 'info', test: ({ landmarks }) => { const g = shrugGap(landmarks); return g != null && g < 0.15; } },
     ],
   }),
   def({
@@ -794,19 +1594,46 @@ export const EXERCISES: Exercise[] = [
       'Build up from HeSPU reps before chasing a static hold at 90°',
       'Keep your neck neutral, gaze between your hands',
     ],
-    angles: ELBOW_AND_BODYLINE, hold: { angle: 'elbow', minOk: 40, maxOk: 140 }, targetAngle: 90,
-    gauge: { angle: 'elbow', label: 'Elbow', downBelow: 60, upAbove: 120, target: 90 },
+    // FIXED (B20): window was 60-120 — an elbow-hold form (very bent arms)
+    // falls below 60° and the clock never starts. Lowered minOk to 40 so
+    // even a deep elbow-hold starts counting; form rules still flag it.
+    angles: INVERTED_PRESS, hold: { angle: 'elbow', minOk: 40, maxOk: 125 }, targetAngle: 90,
+    gauge: { angle: 'elbow', label: 'Elbow', downBelow: 40, upAbove: 125, target: 90 },
     formRules: [
-      { id: 'too-bent', bodyPart: 'arm', cue: 'Straighten a bit', say: 'Your elbows are too bent — lift slightly.', severity: 'info', test: ({ angles }) => angles.elbow != null && angles.elbow < 60 },
-      { id: 'too-straight', bodyPart: 'arm', cue: 'Bend more', say: 'Lower your elbows to 90°.', severity: 'info', test: ({ angles }) => angles.elbow != null && angles.elbow > 120 },
+      { id: 'too-bent', bodyPart: 'arm', cue: 'Straighten a bit', say: 'Your elbows are too bent — lift slightly.', severity: 'info', test: ({ angles }) => angles.elbow != null && angles.elbow < 40 },
+      { id: 'too-straight', bodyPart: 'arm', cue: 'Bend more', say: 'Lower your elbows to 90°.', severity: 'info', test: ({ angles }) => angles.elbow != null && angles.elbow > 125 },
       { id: 'banana', bodyPart: 'torso', cue: 'Straighten your line', say: 'Don\'t arch — squeeze your body into a straight line.', severity: 'warn', test: ({ angles }) => angles.bodyLine != null && angles.bodyLine < 155 },
+      { id: 'bent-knees', bodyPart: 'leg', cue: 'Straighten and squeeze your legs', say: 'Point your toes and squeeze your legs together for a cleaner line.', severity: 'info', test: ({ angles }) => angles.knee != null && angles.knee < 140 },
+      { id: 'not-stacked', bodyPart: 'torso', cue: 'Stack your hips over your shoulders', say: 'Keep your hips stacked over your shoulders — that\'s what holds the line.', severity: 'warn', test: ({ angles }) => angles.lean != null && angles.lean > 15 },
+      { id: 'legs-apart', bodyPart: 'leg', cue: 'Squeeze your legs together', say: 'Squeeze your legs together for a cleaner line.', severity: 'info', test: ({ landmarks }) => {
+          const scale = torsoScale(landmarks);
+          const la = landmarks[L.LeftAnkle]; const ra = landmarks[L.RightAnkle];
+          if (scale == null || scale < 1e-4 || !la || !ra || la.visibility < 0.5 || ra.visibility < 0.5) return false;
+          return Math.abs(la.x - ra.x) / scale > 0.3;
+      }},
+      { id: 'uneven-arms', bodyPart: 'arm', cue: 'Even out both arms', say: 'One arm is taking more of the load than the other — even out the hold.', severity: 'warn', test: ({ landmarks, angles }) => {
+          if (angles.elbow == null) return false;
+          const le = landmarks[L.LeftElbow]; const re = landmarks[L.RightElbow];
+          if (!allVisible(landmarks, [L.LeftShoulder, L.LeftElbow, L.LeftWrist, L.RightShoulder, L.RightElbow, L.RightWrist], 0.5) || !le || !re) return false;
+          const left = jointAngle(landmarks[L.LeftShoulder], le, landmarks[L.LeftWrist]);
+          const right = jointAngle(landmarks[L.RightShoulder], re, landmarks[L.RightWrist]);
+          return Math.abs(left - right) > 20;
+      }},
+      { id: 'neck', bodyPart: 'torso', cue: 'Keep your neck neutral', say: 'Keep your neck neutral, gaze between your hands.', severity: 'info', test: ({ landmarks }) => {
+          const nose = landmarks[L.Nose]; const lw = landmarks[L.LeftWrist]; const rw = landmarks[L.RightWrist];
+          if (!nose || !lw || !rw || nose.visibility < 0.5 || lw.visibility < 0.5 || rw.visibility < 0.5) return false;
+          const handX = (lw.x + rw.x) / 2;
+          return Math.abs(nose.x - handX) > 0.15;
+      }},
     ],
   }),
   // ───────── V-Sit path (side view) ─────────
   def({
     slug: 'l-to-v-raises', name: 'L→V Raises', category: 'core', mode: 'reps', family: 'l-sit', level: 2,
     muscles: ['core', 'triceps', 'hip flexors'], view: 'side', requiredJoints: STANDING,
-    gate: ({ landmarks }) => feetOffFloor(landmarks),
+    // FIXED (B12): same reasoning as L-sit/V-sit — require sitting up on the
+    // support, not lying flat with legs raised.
+    gate: ({ landmarks }) => feetOffFloor(landmarks) && isSeatedSupport(landmarks),
     setup: 'Film your SIDE at floor level. Start in an L-sit and lift your legs toward a V.',
     summary: 'Raise your legs from L-sit toward V-sit. Core and hip flexor work.',
     howTo: ['Start in an L-sit with straight legs.', 'Press through your hands.', 'Lift your legs toward vertical.', 'Lower back to L-sit with control.'],
@@ -824,17 +1651,34 @@ export const EXERCISES: Exercise[] = [
       'Build compression strength with static L-sits before adding this raise',
       'Quality reps beat fast, sloppy ones — pause briefly at the top',
     ],
-    angles: HIP_AND_KNEE, rep: { angle: 'hip', downBelow: 100, upAbove: 140 }, targetAngle: 160,
-    gauge: { angle: 'hip', label: 'Height', downBelow: 100, upAbove: 140, target: 160 },
+    // FIXED (B3): downBelow/upAbove (100/140) were both ABOVE a resting
+    // L-sit's own hip angle (~90) — raising legs toward a V CLOSES the hip
+    // angle further (toward v-sit's ~40-70), it doesn't open it, so the rep
+    // could never cross either threshold in the direction the movement
+    // actually goes. Rebuilt around the real range: L-sit (~90, top/reset)
+    // down to a real V (~65, bottom/contraction) and back.
+    angles: ELBOW_HIP_BODY_KNEE, rep: { angle: 'hip', downBelow: 65, upAbove: 95 }, targetAngle: 50,
+    gauge: { angle: 'hip', label: 'Height', downBelow: 65, upAbove: 95, target: 50 },
     formRules: [
+      { id: 'bent-legs-mild', bodyPart: 'leg', cue: 'Lock your knees', say: 'Your knees are starting to bend — lock them out straight.', severity: 'info', test: ({ angles }) => angles.knee != null && angles.knee < 165 && angles.knee >= 150 },
       { id: 'bent-legs', bodyPart: 'leg', cue: 'Straighten your legs', say: 'Lock your knees and point your toes.', severity: 'warn', test: ({ angles }) => angles.knee != null && angles.knee < 150 },
-      { id: 'low', cue: 'Lift higher', say: 'Lift your legs above parallel toward vertical.', severity: 'info', test: ({ angles }) => angles.hip != null && angles.hip < 130 && angles.hip > 90 },
+      { id: 'low', cue: 'Lift higher', say: 'Lift your legs closer to vertical, toward a real V.', severity: 'info', test: ({ angles }) => angles.hip != null && angles.hip > 65 && angles.hip < 90 },
+      { id: 'locked-arms', bodyPart: 'arm', cue: 'Press through straight arms', say: 'Press down through straight arms — don\'t let your elbows bend as you lift.', severity: 'warn', test: ({ angles }) => angles.elbow != null && angles.elbow < 160 },
+      { id: 'shrug', bodyPart: 'arm', cue: 'Relax your shoulders', say: 'Keep your shoulders down, away from your ears.', severity: 'info', test: ({ landmarks }) => { const g = shrugGap(landmarks); return g != null && g < 0.15; } },
+      { id: 'uneven-legs', bodyPart: 'leg', cue: 'Raise both legs evenly', say: 'One leg is higher than the other — lift them together.', severity: 'warn', test: ({ landmarks }) => {
+          const scale = torsoScale(landmarks);
+          const la = landmarks[L.LeftAnkle]; const ra = landmarks[L.RightAnkle];
+          if (scale == null || scale < 1e-4 || !la || !ra || la.visibility < 0.5 || ra.visibility < 0.5) return false;
+          return Math.abs(la.y - ra.y) / scale > 0.35;
+      }},
     ],
   }),
   def({
     slug: 'v-sit', name: 'V-Sit', category: 'core', mode: 'hold', family: 'l-sit', level: 3,
     muscles: ['core', 'triceps', 'hip flexors', 'quads'], view: 'side', requiredJoints: STANDING,
-    gate: ({ landmarks }) => feetOffFloor(landmarks, 0),
+    // FIXED (B12): same reasoning as L-sit — require sitting up on the
+    // support, not lying flat with legs raised.
+    gate: ({ landmarks }) => feetOffFloor(landmarks) && isSeatedSupport(landmarks),
     setup: 'Film your SIDE at floor level. Hands pressing the floor, legs vertical.',
     summary: 'Ultimate compression hold. Legs vertical, torso vertical — a V with the floor.',
     howTo: ['Sit with legs extended, hands by your hips.', 'Press down and lift your body.', 'Lift your legs to vertical.', 'Hold the V — legs straight, chest proud.'],
@@ -852,92 +1696,38 @@ export const EXERCISES: Exercise[] = [
       'Rest fully between attempts — this is a max-effort compression hold',
       'Warm up your hip flexors and hamstrings before attempting',
     ],
-    angles: HIP_AND_KNEE, hold: { angle: 'hip', minOk: 95, maxOk: 180 }, targetAngle: 160,
-    gauge: { angle: 'hip', label: 'Openness', downBelow: 110, upAbove: 180, target: 160 },
+    // FIXED (B2): hold window (95-180) and 'not-high-enough' (hip < 120)
+    // both accepted/rewarded a NEAR-STRAIGHT hip angle — i.e. lying flat,
+    // barely a raise — while a real V-sit closes the hip angle toward
+    // ~40-70°. The old cue fired exactly when form WAS good and went silent
+    // exactly when it wasn't — precisely backwards. Rebuilt around the real
+    // V-sit range.
+    angles: ELBOW_HIP_BODY_KNEE, hold: { angle: 'hip', minOk: 30, maxOk: 75 }, targetAngle: 50,
+    gauge: { angle: 'hip', label: 'Openness', downBelow: 40, upAbove: 70, target: 50 },
     formRules: [
+      { id: 'bent-knees-mild', bodyPart: 'leg', cue: 'Lock your knees', say: 'Your knees are starting to bend — lock them out straight.', severity: 'info', test: ({ angles }) => angles.knee != null && angles.knee < 165 && angles.knee >= 150 },
       { id: 'bent-knees', bodyPart: 'leg', cue: 'Straighten your legs', say: 'Lock your knees — no bending.', severity: 'warn', test: ({ angles }) => angles.knee != null && angles.knee < 150 },
-      { id: 'not-high-enough', bodyPart: 'leg', cue: 'Lift your legs higher', say: 'Bring your legs closer to vertical.', severity: 'info', test: ({ angles }) => angles.hip != null && angles.hip < 120 },
+      { id: 'not-high-enough', bodyPart: 'leg', cue: 'Lift your legs higher', say: 'Bring your legs closer to vertical, toward a real V.', severity: 'info', test: ({ angles }) => angles.hip != null && angles.hip > 75 && angles.hip < 100 },
+      { id: 'locked-arms', bodyPart: 'arm', cue: 'Press through straight arms', say: 'Press down through straight arms to support the hold.', severity: 'warn', test: ({ angles }) => angles.elbow != null && angles.elbow < 160 },
+      { id: 'shrug', bodyPart: 'arm', cue: 'Relax your shoulders', say: 'Keep your shoulders down away from your ears.', severity: 'info', test: ({ landmarks }) => { const g = shrugGap(landmarks); return g != null && g < 0.15; } },
+      { id: 'uneven-legs', bodyPart: 'leg', cue: 'Hold both legs evenly', say: 'One leg is higher than the other — hold them together.', severity: 'warn', test: ({ landmarks }) => {
+          const scale = torsoScale(landmarks);
+          const la = landmarks[L.LeftAnkle]; const ra = landmarks[L.RightAnkle];
+          if (scale == null || scale < 1e-4 || !la || !ra || la.visibility < 0.5 || ra.visibility < 0.5) return false;
+          return Math.abs(la.y - ra.y) / scale > 0.35;
+      }},
     ],
   }),
   // ───────── Pistol Squat path (side view) ─────────
   def({
-    slug: 'assisted-pistol', name: 'Assisted Pistol Squat', category: 'lower', mode: 'reps', family: 'pistol', level: 1,
-    muscles: ['quads', 'glutes', 'core'], view: 'side', requiredJoints: STANDING,
-    gate: ({ landmarks }) => oneLegForward(landmarks),
-    setup: 'Film your SIDE. Hold a doorframe or band. One leg forward, one leg squatting.',
-    summary: 'Single-leg squat with assistance. Build toward the full pistol.',
-    howTo: ['Extend one leg forward, foot off the floor.', 'Hold a support (doorframe/band).', 'Squat down on the standing leg.', 'Push back up through your heel.'],
-    cues: [
-      'Keep your extended leg locked straight, foot off the floor throughout',
-      'Chest up and proud — don\'t let your torso collapse forward',
-      'Use light assistance — just enough to stay balanced, not to bear real weight',
-      'Push through your heel, not your toes, as you stand',
-      'Go to full depth — hamstring to calf — for the real benefit',
-      'Keep your standing knee tracking over your toes, not caving in',
-      'Control the descent — don\'t just drop into the bottom',
-      'Exhale as you drive up out of the bottom',
-      'Reduce assistance gradually over weeks as balance and strength improve',
-      'Keep your arms forward for counterbalance, not flailing',
-      'Limited ankle mobility? Elevate your heel slightly on a small plate',
-      'Balance is half the battle — practice the bottom position statically too',
-    ],
-    angles: MIN_KNEE, rep: { angle: 'knee', downBelow: 128, upAbove: 160 }, targetAngle: 90,
-    gauge: { angle: 'knee', label: 'Depth', downBelow: 128, upAbove: 160, target: 90 },
-    formRules: [
-      { id: 'shallow', bodyPart: 'leg', cue: 'Go lower', say: 'Squat deeper — aim for parallel or below.', severity: 'info', test: ({ angles }) => angles.knee != null && angles.knee > 140 },
-      { id: 'extended-leg-bent', bodyPart: 'leg', cue: 'Straighten your extended leg', say: 'Keep your front leg straight — foot off the floor.', severity: 'warn', test: ({ landmarks }) => {
-          const lh = landmarks[L.LeftHip]; const lk = landmarks[L.LeftKnee]; const la = landmarks[L.LeftAnkle];
-          const rh = landmarks[L.RightHip]; const rk = landmarks[L.RightKnee]; const ra = landmarks[L.RightAnkle];
-          if (!lk || !rk || !la || !ra) return false;
-          if (la.y < ra.y && la.visibility >= 0.5 && lh && lk && la) {
-            return jointAngle(lh, lk, la) < 150;
-          }
-          if (ra.y < la.y && ra.visibility >= 0.5 && rh && rk && ra) {
-            return jointAngle(rh, rk, ra) < 150;
-          }
-          return false;
-      }},
-      { id: 'chest-up', bodyPart: 'torso', cue: 'Chest up', say: 'Keep your chest proud and back straight.', severity: 'info', test: ({ landmarks }) => {
-          const lean = verticalDeviation(landmarks[L.LeftShoulder], landmarks[L.LeftHip]);
-          return lean != null && lean > 35;
-      }},
-    ],
-  }),
-  def({
-    slug: 'negative-pistol', name: 'Negative Pistol Squat', category: 'lower', mode: 'reps', family: 'pistol', level: 2,
-    muscles: ['quads', 'glutes', 'core'], view: 'side', requiredJoints: STANDING, countEccentric: true,
-    gate: ({ landmarks }) => oneLegForward(landmarks),
-    setup: 'Film your SIDE. Lower on one leg slowly, step down with both feet to reset.',
-    summary: 'Eccentric pistol squat. Lower on one leg, then use both to stand back up.',
-    howTo: ['Extend one leg forward, arms forward for balance.', 'Lower slowly on the standing leg.', 'Resist all the way down.', 'Use both legs to stand back up and reset.'],
-    cues: [
-      'Lower slowly — aim for a full 3–5 second descent',
-      'Keep your extended leg locked straight the entire way down',
-      'Chest up throughout — don\'t fold forward as you fatigue',
-      'Resist all the way to the bottom, don\'t let gravity win halfway down',
-      'Use both legs to stand back up and reset for the next rep',
-      'Push your arms forward for counterbalance as you lower',
-      'Keep your standing heel planted the whole way down',
-      'This builds the strength for a full pistol — trust the process',
-      'Track your knee over your toes, don\'t let it cave inward',
-      'Breathe steadily — don\'t hold your breath through the descent',
-      'Losing control is the sign to slow down even more next rep',
-      'A slow, shaky negative beats a fast, uncontrolled one every time',
-    ],
-    angles: MIN_KNEE, rep: { angle: 'knee', downBelow: 128, upAbove: 160 }, targetAngle: 90,
-    gauge: { angle: 'knee', label: 'Depth', downBelow: 128, upAbove: 160, target: 90 },
-    formRules: [
-      { id: 'shallow', bodyPart: 'leg', cue: 'Go deeper', say: 'Squat deeper — aim for 90° or below.', severity: 'info', test: ({ angles }) => angles.knee != null && angles.knee > 120 && angles.knee < 155 },
-      { id: 'chest-up', bodyPart: 'torso', cue: 'Chest up', say: 'Keep your chest up, back straight.', severity: 'info', test: ({ landmarks }) => {
-          const lean = verticalDeviation(landmarks[L.LeftShoulder], landmarks[L.LeftHip]);
-          return lean != null && lean > 35;
-      }},
-    ],
-  }),
-  def({
     slug: 'pistol', name: 'Pistol Squat', category: 'lower', mode: 'reps', family: 'pistol', level: 3,
     muscles: ['quads', 'glutes', 'core', 'hamstrings'], view: 'side', requiredJoints: STANDING,
-    gate: ({ landmarks }) => oneLegForward(landmarks),
+    // FIXED (B11): oneLegForward alone (one ankle well above the other)
+    // passes during ordinary standing/walking too — mid-stride, one foot is
+    // always higher than the other for a beat. Requiring the support leg's
+    // knee to already be meaningfully bent ties the gate to someone actually
+    // sitting down on one leg, not just standing with a foot lifted.
+    gate: ({ landmarks, angles }) => oneLegForward(landmarks) && angles.knee != null && angles.knee < 130,
     setup: 'Film your SIDE. Full pistol squat — unassisted single-leg squat with full control.',
     summary: 'Single-leg squat, unassisted. The king of lower-body calisthenics.',
     howTo: ['Extend one leg forward, foot off the floor.', 'Arms forward for counterbalance.', 'Squat all the way down on one leg.', 'Drive back up through your heel.'],
@@ -955,61 +1745,58 @@ export const EXERCISES: Exercise[] = [
       'Alternate legs each set to keep both sides even',
       'One of the hardest bodyweight leg moves — patience over months, not weeks',
     ],
-    angles: (lms) => ({ ...MIN_KNEE(lms), torsoLean: verticalDeviation(lms[L.LeftShoulder], lms[L.LeftHip]) }),
-    rep: { angle: 'knee', downBelow: 128, upAbove: 160 }, targetAngle: 75,
-    gauge: { angle: 'knee', label: 'Depth', downBelow: 128, upAbove: 160, target: 75 },
+    // FIXED (B6): torsoLean used to read only the LEFT shoulder/hip.
+    // MIN_KNEE_LOOSE uses visibility threshold 0.3 instead of 0.4 — a
+    // side-view pistol naturally occludes the far leg, so the standard
+    // threshold silently returned null for most real attempts.
+    angles: (lms) => ({ ...MIN_KNEE_LOOSE(lms), torsoLean: torsoLeanDeg(lms) }),
+    // FIXED (B15): downBelow was 128 — barely a quarter-squat on one leg, and
+    // far shallower than the exercise's own cue ("hamstring to calf, every
+    // single rep"). Deepened to 100, matching the regular squat's own
+    // downBelow — a pistol's bottom should be at least as deep as a
+    // two-legged squat, not shallower.
+    rep: { angle: 'knee', downBelow: 100, upAbove: 160 }, targetAngle: 75,
+    gauge: { angle: 'knee', label: 'Depth', downBelow: 100, upAbove: 160, target: 75 },
     formRules: [
-      { id: 'shallow', bodyPart: 'leg', cue: 'Go deeper', say: 'Squat all the way — hamstring to calf.', severity: 'info', test: ({ angles }) => angles.knee != null && angles.knee > 140 },
+      { id: 'shallow', bodyPart: 'leg', cue: 'Go deeper', say: 'Squat all the way — hamstring to calf.', severity: 'info', test: ({ angles }) => angles.knee != null && angles.knee > 110 && angles.knee < 145 },
       { id: 'extended-leg-bent', bodyPart: 'leg', cue: 'Straighten your extended leg', say: 'Keep your front leg locked straight — foot off the floor.', severity: 'warn', test: ({ landmarks }) => {
-          const lh = landmarks[L.LeftHip]; const lk = landmarks[L.LeftKnee]; const la = landmarks[L.LeftAnkle];
-          const rh = landmarks[L.RightHip]; const rk = landmarks[L.RightKnee]; const ra = landmarks[L.RightAnkle];
-          if (!lk || !rk || !la || !ra) return false;
-          if (la.y < ra.y && la.visibility >= 0.5 && lh && lk && la) {
-            return jointAngle(lh, lk, la) < 150;
-          }
-          if (ra.y < la.y && ra.visibility >= 0.5 && rh && rk && ra) {
-            return jointAngle(rh, rk, ra) < 150;
-          }
-          return false;
+          const support = pistolSupportSide(landmarks);
+          if (!support) return false;
+          const side = support.hip === L.LeftHip ? 'left' : 'right';
+          const extHip = side === 'left' ? L.RightHip : L.LeftHip;
+          const extKnee = side === 'left' ? L.RightKnee : L.LeftKnee;
+          const extAnkle = side === 'left' ? L.RightAnkle : L.LeftAnkle;
+          if (!allVisible(landmarks, [extHip, extKnee, extAnkle], 0.3)) return false;
+          return jointAngle(landmarks[extHip], landmarks[extKnee], landmarks[extAnkle]) < 150;
       }},
-      { id: 'chest-up', bodyPart: 'torso', cue: 'Chest up', say: 'Keep your chest proud and back straight.', severity: 'info', test: ({ landmarks }) => {
-          const lean = verticalDeviation(landmarks[L.LeftShoulder], landmarks[L.LeftHip]);
-          return lean != null && lean > 35;
+      { id: 'chest-up-mild', bodyPart: 'torso', cue: 'Keep your chest tall', say: 'Start lifting your chest before you fold forward any further.', severity: 'info', test: ({ angles }) => angles.torsoLean != null && angles.torsoLean > 25 && angles.torsoLean <= 35 },
+      { id: 'chest-up', bodyPart: 'torso', cue: 'Chest up', say: 'Keep your chest proud and back straight.', severity: 'warn', test: ({ angles }) => angles.torsoLean != null && angles.torsoLean > 35 },
+      { id: 'leg-touching', bodyPart: 'leg', cue: 'Keep that leg lifted', say: 'Your extended leg is drifting down toward the floor — keep it lifted the whole rep.', severity: 'warn', test: ({ landmarks }) => {
+          const la = landmarks[L.LeftAnkle]; const ra = landmarks[L.RightAnkle];
+          if (!la || !ra || la.visibility < 0.5 || ra.visibility < 0.5) return false;
+          return Math.abs(la.y - ra.y) < 0.1;
       }},
-    ],
-  }),
-  // ───────── Diamond Push-Up (front view) ─────────
-  def({
-    slug: 'diamond-pushup', name: 'Diamond Push-Up', category: 'upper', mode: 'reps', family: 'push', level: 2,
-    muscles: ['triceps', 'chest', 'shoulders'], view: 'front', requiredJoints: ARMS, hideLegs: true,
-    gate: ({ landmarks }) => isProne(landmarks) && handsTogether(landmarks),
-    setup: 'FACE the camera. Hands close together forming a diamond under your chest.',
-    summary: 'Narrow-grip push-up. Hands together — all triceps.',
-    howTo: ['Hands together, index fingers and thumbs form a diamond.', 'Body in a straight line.', 'Lower until your chest touches your hands.', 'Press up with triceps.'],
-    cues: [
-      'Hands together, thumbs and index fingers touching to form a diamond',
-      'Elbows track back toward your feet, not out to the sides',
-      'Lower until your chest touches your hands every rep',
-      'Body one straight line, head to heels — don\'t let hips sag',
-      'This narrow grip is harder on your triceps — expect fewer reps than regular push-ups',
-      'Full lockout at the top every rep',
-      'Keep your neck neutral, gaze just ahead of your hands',
-      'Exhale as you press up, control the lowering phase down',
-      'Wrists aching? Try it on fists or slightly wider hands while mobility improves',
-      'Brace your core hard — the narrow base makes stability harder',
-      'Build up from regular push-ups if diamond reps drop off a cliff',
-      'Warm up your wrists and elbows before training this variation',
-    ],
-    angles: ELBOW_AND_BODYLINE, rep: { angle: 'elbow', downBelow: 95, upAbove: 155 }, targetAngle: 90,
-    gauge: { angle: 'elbow', label: 'Depth', downBelow: 95, upAbove: 155, target: 90 },
-    formRules: [
-      { id: 'body-line', bodyPart: 'torso', cue: 'Straighten your body', say: 'Keep your body in one straight line from head to heels.', severity: 'warn', test: ({ angles }) => angles.bodyLine != null && angles.bodyLine < 160 },
-      { id: 'shallow', bodyPart: 'arm', cue: 'Go deeper', say: 'Lower your chest to your hands.', severity: 'info', test: ({ angles }) => angles.elbow != null && angles.elbow > 110 && angles.elbow < 145 },
-      { id: 'elbows-flare', bodyPart: 'arm', cue: 'Elbows back, not out', say: 'Keep your elbows pointed back toward your feet, not flaring out.', severity: 'warn', test: ({ landmarks }) => {
-          const ls = landmarks[L.LeftShoulder]; const le = landmarks[L.LeftElbow];
-          const lw = landmarks[L.LeftWrist];
-          return ls != null && le != null && lw != null && ls.visibility >= 0.5 && le.visibility >= 0.5 && lw.visibility >= 0.5
-            ? (le.x - lw.x) > (ls.x - le.x) * 1.2 : false;
+      { id: 'heel-lift', bodyPart: 'leg', cue: 'Keep your heel down', say: 'Your support heel is lifting — keep your weight through your midfoot and heel, not your toes.', severity: 'warn', test: ({ landmarks }) => {
+          const side = pistolSupportSide(landmarks);
+          if (!side) return false;
+          return heelLifted(landmarks, side.heel, side.footIndex) === true;
+      }},
+      { id: 'knee-forward-mild', bodyPart: 'leg', cue: 'Watch your knee drifting forward', say: 'Your support knee is starting to travel well past your toes.', severity: 'info', test: ({ landmarks }) => {
+          const side = pistolSupportSide(landmarks);
+          const scale = torsoScale(landmarks);
+          if (!side || scale == null || scale < 1e-4) return false;
+          const k = landmarks[side.knee]; const a = landmarks[side.ankle];
+          if (!k || !a || k.visibility < 0.5 || a.visibility < 0.5) return false;
+          const d = Math.abs(k.x - a.x) / scale;
+          return d > 0.5 && d <= 0.8;
+      }},
+      { id: 'knee-forward', bodyPart: 'leg', cue: 'Sit back into your hip', say: 'Your support knee is traveling too far past your toes — sit back into your hip more.', severity: 'warn', test: ({ landmarks }) => {
+          const side = pistolSupportSide(landmarks);
+          const scale = torsoScale(landmarks);
+          if (!side || scale == null || scale < 1e-4) return false;
+          const k = landmarks[side.knee]; const a = landmarks[side.ankle];
+          if (!k || !a || k.visibility < 0.5 || a.visibility < 0.5) return false;
+          return Math.abs(k.x - a.x) / scale > 0.8;
       }},
     ],
   }),
@@ -1035,88 +1822,87 @@ export const EXERCISES: Exercise[] = [
       'Grip just outside shoulder width for a stable hang',
       'Keep your neck relaxed, don\'t crane it looking down at your knees',
     ],
-    angles: (lms) => ({ ...KNEE(lms), ...HIP(lms), ...ELBOW(lms) }), rep: { angle: 'hip', downBelow: 60, upAbove: 90 }, targetAngle: 40,
-    gauge: { angle: 'hip', label: 'Compression', downBelow: 60, upAbove: 90, target: 40 },
+    angles: (lms) => ({ ...KNEE(lms), ...HIP(lms), ...ELBOW(lms) }),
+    // FIXED (B18): upAbove was 90 — the rep completed when the hips barely
+    // returned to horizontal (thighs parallel to the floor), giving credit
+    // for a partial lower. The exercise's own cues say "lower with control to
+    // a full, straight-arm hang" and "a dead hang between reps." Raised to
+    // 130 so the user must lower at least well past horizontal toward the
+    // full hang (~180°), not just to a 90° halfway point.
+    rep: { angle: 'hip', downBelow: 60, upAbove: 155 }, targetAngle: 40,
+    gauge: { angle: 'hip', label: 'Compression', downBelow: 60, upAbove: 155, target: 40 },
     formRules: [
       { id: 'bent-arms', bodyPart: 'arm', cue: 'Straight arms', say: 'Keep your arms locked at the bottom.', severity: 'warn', test: ({ angles }) => angles.elbow != null && angles.elbow < 160 },
-      { id: 'partial', cue: 'Knees higher', say: 'Raise your knees above your hips.', severity: 'info', test: ({ angles }) => angles.hip != null && angles.hip > 70 },
+      { id: 'partial', cue: 'Knees higher', say: 'Raise your knees above your hips.', severity: 'info', test: ({ angles }) => angles.hip != null && angles.hip > 70 && angles.hip < 140 },
       { id: 'swinging', bodyPart: 'torso', cue: 'Stop swinging', say: 'Control the movement — no momentum.', severity: 'warn', test: ({ landmarks }) => {
           const ls = landmarks[L.LeftShoulder]; const rs = landmarks[L.RightShoulder];
           const lh = landmarks[L.LeftHip]; const rh = landmarks[L.RightHip];
           if (!ls || !rs || !lh || !rh) return false;
-          const shoulderX = (ls.x + rs.x) / 2;
-          const hipX = (lh.x + rh.x) / 2;
+          // FROM A BAR the far shoulder/hip are behind the body and frequently
+          // read with very low visibility — using those positions for a
+          // midpoint calculation would be pure noise. Only include a landmark
+          // in the midpoint when it's actually confidently visible.
+          const sx: number[] = [];
+          if (ls.visibility >= 0.5) sx.push(ls.x);
+          if (rs.visibility >= 0.5) sx.push(rs.x);
+          const hx: number[] = [];
+          if (lh.visibility >= 0.5) hx.push(lh.x);
+          if (rh.visibility >= 0.5) hx.push(rh.x);
+          if (sx.length === 0 || hx.length === 0) return false;
+          const shoulderX = sx.reduce((a, b) => a + b, 0) / sx.length;
+          const hipX = hx.reduce((a, b) => a + b, 0) / hx.length;
           return Math.abs(shoulderX - hipX) > 0.15;
+      }},
+      // knee is computed above but nothing read it — a kicked-up straight leg
+      // (using momentum) vs a curled tuck both raise the hip angle the same
+      // way, so this is the only signal that tells them apart.
+      { id: 'not-tucking', bodyPart: 'leg', cue: 'Curl your knees, don\'t kick', say: 'Curl your knees up rather than kicking your legs up straight.', severity: 'info', test: ({ angles }) => angles.knee != null && angles.knee > 140 && angles.hip != null && angles.hip < 90 },
+      { id: 'shrug', bodyPart: 'arm', cue: 'Relax your shoulders', say: 'Push your shoulders down away from your ears — hang, don\'t shrug.', severity: 'info', test: ({ landmarks }) => { const g = shrugGap(landmarks); return g != null && g < 0.15; } },
+      { id: 'hands-wide', bodyPart: 'arm', cue: 'Bring your hands in slightly', say: 'A very wide grip adds shoulder strain — just outside shoulder width is plenty.', severity: 'info', test: ({ landmarks }) => {
+          const sw = shoulderWidth(landmarks);
+          const lw = landmarks[L.LeftWrist]; const rw = landmarks[L.RightWrist];
+          if (sw == null || sw < 1e-4 || !lw || !rw || lw.visibility < 0.5 || rw.visibility < 0.5) return false;
+          return Math.abs(lw.x - rw.x) / sw > 2.2;
+      }},
+      { id: 'hands-narrow', bodyPart: 'arm', cue: 'Widen your grip slightly', say: 'A very narrow grip strains your wrists — widen to just outside shoulder width.', severity: 'info', test: ({ landmarks }) => {
+          const sw = shoulderWidth(landmarks);
+          const lw = landmarks[L.LeftWrist]; const rw = landmarks[L.RightWrist];
+          if (sw == null || sw < 1e-4 || !lw || !rw || lw.visibility < 0.5 || rw.visibility < 0.5) return false;
+          return Math.abs(lw.x - rw.x) / sw < 0.9;
+      }},
+      { id: 'uneven-raise', bodyPart: 'leg', cue: 'Raise both knees evenly', say: 'One knee is rising higher than the other — raise them together.', severity: 'warn', test: ({ landmarks }) => {
+          const scale = torsoScale(landmarks);
+          const lk = landmarks[L.LeftKnee]; const rk = landmarks[L.RightKnee];
+          if (scale == null || scale < 1e-4 || !lk || !rk || lk.visibility < 0.5 || rk.visibility < 0.5) return false;
+          return Math.abs(lk.y - rk.y) / scale > 0.35;
+      }},
+      { id: 'neck-crane', bodyPart: 'torso', cue: 'Keep your neck relaxed', say: 'Don\'t crane your neck looking down at your knees — keep it relaxed and in line.', severity: 'info', test: ({ landmarks }) => {
+          const nose = landmarks[L.Nose]; const ls = landmarks[L.LeftShoulder];
+          return nose != null && ls != null && nose.visibility >= 0.5 && ls.visibility >= 0.5
+            ? Math.abs(nose.x - ls.x) > 0.06 : false;
+      }},
+      { id: 'shoulder-tilt', bodyPart: 'torso', cue: 'Keep your shoulders level', say: 'You\'re rotating around the bar — keep your shoulders level.', severity: 'warn', test: ({ landmarks }) => {
+          const scale = torsoScale(landmarks);
+          const ls = landmarks[L.LeftShoulder]; const rs = landmarks[L.RightShoulder];
+          if (scale == null || scale < 1e-4 || !ls || !rs || ls.visibility < 0.5 || rs.visibility < 0.5) return false;
+          return Math.abs(ls.y - rs.y) / scale > 0.3;
       }},
     ],
   }),
   // ───────── Muscle-Up path (front view) ─────────
   def({
-    slug: 'chest-to-bar', name: 'Chest-to-Bar Pull-Up', category: 'upper', mode: 'reps', family: 'muscle-up', level: 1,
-    muscles: ['back', 'biceps', 'shoulders'], view: 'front', requiredJoints: ARMS, showBar: true,
-    gate: ({ landmarks }) => isHangingOnBar(landmarks),
-    setup: 'FACE the camera at the bar. Pull your chest all the way to the bar — explosive!',
-    summary: 'Explosive pull-up. Chest contacts the bar — the power half of the muscle-up.',
-    howTo: ['Hang from the bar with straight arms.', 'Pull explosively, leaning back slightly.', 'Drive your chest toward the bar.', 'Lower with control.'],
-    cues: [
-      'Pull explosively — this is a power move, not a slow grind',
-      'Drive your chest all the way to the bar, not just your chin',
-      'Lean back slightly as you pull to clear the bar with your chest',
-      'Lower with control — don\'t just drop back to a dead hang',
-      'Full dead hang at the bottom between reps',
-      'Keep your legs still — no kipping or swinging for momentum',
-      'Squeeze your shoulder blades together before you pull',
-      'Exhale hard as you drive up',
-      'This builds the power half of a muscle-up — treat it as strength training',
-      'Grip just outside shoulder width',
-      'Rest fully between sets — explosive pulls are demanding',
-      'Chest never reaches the bar? Work regular pull-ups for more pulling strength first',
-    ],
-    angles: ELBOW, rep: { angle: 'elbow', downBelow: 70, upAbove: 150 }, targetAngle: 40,
-    gauge: { angle: 'elbow', label: 'Pull height', downBelow: 70, upAbove: 150, target: 40 },
-    formRules: [
-      { id: 'partial', bodyPart: 'arm', cue: 'Pull higher', say: 'Pull until your chest touches the bar.', severity: 'warn', test: ({ angles }) => angles.elbow != null && angles.elbow > 70 && angles.elbow < 100 },
-      { id: 'kipping', bodyPart: 'torso', cue: 'No kipping', say: 'Use your back and arms — don\'t swing your legs.', severity: 'warn', test: ({ landmarks }) => {
-          const ls = landmarks[L.LeftShoulder]; const rs = landmarks[L.RightShoulder];
-          const lh = landmarks[L.LeftHip]; const rh = landmarks[L.RightHip];
-          if (!ls || !rs || !lh || !rh) return false;
-          if (ls.visibility < 0.5 || rs.visibility < 0.5 || lh.visibility < 0.5 || rh.visibility < 0.5) return false;
-          return Math.abs((ls.y + rs.y) / 2 - (lh.y + rh.y) / 2) > 0.15;
-      }},
-    ],
-  }),
-  def({
-    slug: 'transition-negative', name: 'Transition Negative', category: 'upper', mode: 'reps', family: 'muscle-up', level: 2,
-    muscles: ['back', 'triceps', 'shoulders', 'core'], view: 'front', requiredJoints: ARMS, showBar: true, countEccentric: true,
-    gate: ({ landmarks }) => belowBar(landmarks),
-    setup: 'FACE the camera. Jump or pull to support, then lower through the transition slowly.',
-    summary: 'Eccentric muscle-up transition. Lower from support to dead hang through the hard part.',
-    howTo: ['Start in a support position (shoulders over the bar).', 'Lean forward slightly.', 'Lower through the transition slowly.', 'End in a dead hang.'],
-    cues: [
-      'Lower slowly — 3–5 seconds through the hardest part of the muscle-up',
-      'Lean forward as you lower to stay close to the bar',
-      'Start from a solid support position, shoulders over the bar',
-      'Control the rotation of your wrists as you go over and back',
-      'End in a full dead hang at the bottom',
-      'Keep your core braced throughout — this protects your shoulders',
-      'Breathe steadily — don\'t hold your breath through the hardest range',
-      'This is the single best drill for building the muscle-up transition',
-      'Drop fast partway? That\'s exactly where to focus extra-slow reps',
-      'Use a slight jump or spot to get to the top support position safely',
-      'Rest well between reps — this is a strength-focused drill, not conditioning',
-      'Progress by adding a second to your lowering time every week or two',
-    ],
-    angles: ELBOW,
-    rep: { angle: 'elbow', downBelow: 105, upAbove: 165 }, targetAngle: 180,
-    gauge: { angle: 'elbow', label: 'Depth', downBelow: 105, upAbove: 165, target: 180 },
-    formRules: [
-      { id: 'fast-drop', cue: 'Lower slower', say: 'Control the descent — at least 3 seconds.', severity: 'info', test: ({ angles }) => angles.elbow != null && angles.elbow < 120 },
-    ],
-  }),
-  def({
     slug: 'muscle-up', name: 'Muscle-Up', category: 'upper', mode: 'reps', family: 'muscle-up', level: 3,
     muscles: ['back', 'triceps', 'shoulders', 'chest', 'core'], view: 'front', requiredJoints: ARMS, showBar: true,
-    gate: ({ landmarks }) => isHangingOnBar(landmarks),
+    // FIXED (B16): isHangingOnBar alone is false during the support (top)
+    // position — you're pressing DOWN on the bar, not hanging from it — so
+    // the gate closes during the most critical phase of the muscle-up: the
+    // support. The rep counter survives that brief gap (REP_BREAK_MS = 2500ms)
+    // but NO form rules evaluate during support — the lockout, banana, and all
+    // top-position coaching was silently dead. isDipSupported catches the
+    // support phase (shoulders above hips, wrists near hip height pressing
+    // down), so the gate stays open through the full hang→transition→support
+    // cycle.
+    gate: ({ landmarks }) => isHangingOnBar(landmarks) || isDipSupported(landmarks),
     setup: 'FACE the camera at the bar. Full muscle-up — explode up, transition over the bar, press to support.',
     summary: 'The ultimate pulling move. From dead hang to full support in one motion.',
     howTo: ['Hang from the bar, slight kip for momentum.', 'Explosive pull, leaning back.', 'As your chest reaches the bar, rotate your elbows over.', 'Press up to full support.'],
@@ -1134,10 +1920,14 @@ export const EXERCISES: Exercise[] = [
       'Rest fully between reps — this is a maximal-effort skill move',
       'Chest-to-bar pull-ups and dips build the two halves — train them if muscle-ups stall',
     ],
-    angles: ELBOW, rep: { angle: 'elbow', downBelow: 85, upAbove: 155 }, targetAngle: 90,
+    angles: ELBOW_AND_BODYLINE, rep: { angle: 'elbow', downBelow: 85, upAbove: 155 }, targetAngle: 90,
     gauge: { angle: 'elbow', label: 'Pull depth', downBelow: 85, upAbove: 155, target: 90 },
     formRules: [
-      { id: 'no-transition', cue: 'Punch through the transition', say: 'Rotate your elbows over the bar as you reach the top of your pull.', severity: 'warn', test: ({ landmarks }) => {
+      { id: 'no-transition', cue: 'Punch through the transition', say: 'Rotate your elbows over the bar as you reach the top of your pull.', severity: 'warn', test: ({ landmarks, angles }) => {
+          // Only during an active pull (elbow meaningfully bent) — otherwise
+          // this was true for the entire dead hang between reps too, since a
+          // straight-arm hang also has wrists well below shoulders.
+          if (angles.elbow == null || angles.elbow > 140) return false;
           const lw = landmarks[L.LeftWrist]; const rw = landmarks[L.RightWrist];
           const ls = landmarks[L.LeftShoulder]; const rs = landmarks[L.RightShoulder];
           if (!lw || !rw || !ls || !rs) return false;
@@ -1146,156 +1936,48 @@ export const EXERCISES: Exercise[] = [
           // If wrists are well below shoulders (fail transition) while elbows are bent
           return wristY > shoulderY + 0.08;
       }},
-    ],
-  }),
-  // ───────── Home-workout staples ─────────
-  def({
-    slug: 'reverse-lunge', name: 'Reverse Lunge', category: 'lower', mode: 'reps', family: 'lunge', level: 1,
-    muscles: ['quads', 'glutes', 'hamstrings'], view: 'side', requiredJoints: STANDING,
-    setup: 'Film your SIDE, phone upright 2–3 m away — head to feet in frame. It watches whichever leg is bent.',
-    summary: 'The easiest lunge on your knees. Step back, drop straight down, drive back to standing.',
-    howTo: ['Stand tall, feet hip-width.', 'Step one leg back, lowering your rear knee toward the floor.', 'Front thigh reaches parallel to the floor.', 'Drive through your front heel back to standing.'],
-    cues: [
-      'Step back far enough that your front shin stays roughly vertical',
-      'Drop your back knee straight down, not forward',
-      'Keep your torso upright — don\'t lean forward over your front knee',
-      'Push through your front heel to stand back up',
-      'Both knees bend to about 90° at the bottom',
-      'Control the step back — don\'t just fall into position',
-      'Alternate legs evenly, or finish all reps on one side then switch',
-      'Keep your core braced so you don\'t wobble sideways',
-      'Look straight ahead, not down at your feet',
-      'This is gentler on your knees than a forward lunge — a great starting point',
-      'If your front knee caves inward, slow down and reset your stance width',
-      'Full stand at the top between reps — don\'t rush into the next one',
-    ],
-    angles: MIN_KNEE, rep: { angle: 'knee', downBelow: 110, upAbove: 158 }, targetAngle: 90,
-    gauge: { angle: 'knee', label: 'Depth', downBelow: 110, upAbove: 158, target: 90 },
-    formRules: [
-      { id: 'shallow', bodyPart: 'leg', cue: 'Go lower', say: 'Drop your back knee closer to the floor.', severity: 'info', test: ({ angles }) => angles.knee != null && angles.knee > 130 && angles.knee < 155 },
-      { id: 'lean-forward', bodyPart: 'torso', cue: 'Chest up', say: 'Keep your torso upright — don\'t lean over your front knee.', severity: 'warn', test: ({ landmarks }) => {
-          const lean = verticalDeviation(landmarks[L.LeftShoulder], landmarks[L.LeftHip]);
-          return lean != null && lean > 35;
+      { id: 'catch-low', cue: 'Pull higher before you turn over', say: 'You\'re catching the transition too low — pull higher before rotating over the bar.', severity: 'warn', test: ({ angles }) => angles.elbow != null && angles.elbow > 95 && angles.elbow < 130 },
+      { id: 'no-lockout', bodyPart: 'arm', cue: 'Full lockout at the top', say: 'Press all the way to a full lockout at the top of the support.', severity: 'info', test: ({ angles }) => angles.elbow != null && angles.elbow >= 130 && angles.elbow < 150 },
+      { id: 'banana', bodyPart: 'torso', cue: 'Keep your body tight', say: 'Keep your line tight through the pull — don\'t let your back arch.', severity: 'warn', test: ({ angles }) => angles.bodyLine != null && angles.bodyLine < 150 },
+      { id: 'shrug', bodyPart: 'arm', cue: 'Relax your shoulders first', say: 'Starting with your shoulders hunched up disengages your lats — relax and hang first.', severity: 'info', test: ({ landmarks }) => { const g = shrugGap(landmarks); return g != null && g < 0.15; } },
+      { id: 'hands-wide', bodyPart: 'arm', cue: 'Bring your hands in slightly', say: 'A very wide grip adds shoulder strain and a harder turnover — just outside shoulder width is plenty.', severity: 'info', test: ({ landmarks }) => {
+          const sw = shoulderWidth(landmarks);
+          const lw = landmarks[L.LeftWrist]; const rw = landmarks[L.RightWrist];
+          if (sw == null || sw < 1e-4 || !lw || !rw || lw.visibility < 0.5 || rw.visibility < 0.5) return false;
+          return Math.abs(lw.x - rw.x) / sw > 2.2;
       }},
-    ],
-  }),
-  def({
-    slug: 'bulgarian-split-squat', name: 'Bulgarian Split Squat', category: 'lower', mode: 'reps', family: 'lunge', level: 2,
-    muscles: ['quads', 'glutes', 'hamstrings'], view: 'side', requiredJoints: STANDING,
-    setup: 'Film your SIDE. Rear foot up on a chair or bench behind you, front leg doing the work.',
-    summary: 'Rear-foot-elevated lunge — a serious single-leg quad and glute builder.',
-    howTo: ['Rear foot up on a bench, laces down.', 'Front foot far enough forward that your knee tracks over your ankle.', 'Lower straight down until your front thigh is near parallel.', 'Drive through your front heel to stand.'],
-    cues: [
-      'Front foot far enough forward that your knee doesn\'t drift past your toes',
-      'Lower straight down — think "down," not "forward"',
-      'Keep most of your weight in your front leg, not the elevated rear foot',
-      'Front thigh reaches close to parallel at the bottom',
-      'Torso stays upright, chest proud',
-      'Drive through your front heel and midfoot to stand',
-      'Control the descent — this is much harder than it looks',
-      'Expect real muscle burn and some wobble at first — that\'s normal',
-      'Keep your core braced to stay balanced on one leg',
-      'Full lockout at the top before the next rep',
-      'If your knee caves in, drop the range of motion until control improves',
-      'Do all reps on one side, then switch — don\'t alternate mid-set',
-    ],
-    angles: MIN_KNEE, rep: { angle: 'knee', downBelow: 105, upAbove: 160 }, targetAngle: 85,
-    gauge: { angle: 'knee', label: 'Depth', downBelow: 105, upAbove: 160, target: 85 },
-    formRules: [
-      { id: 'shallow', bodyPart: 'leg', cue: 'Go lower', say: 'Lower until your front thigh is close to parallel.', severity: 'info', test: ({ angles }) => angles.knee != null && angles.knee > 125 && angles.knee < 150 },
-      { id: 'lean-forward', bodyPart: 'torso', cue: 'Chest up', say: 'Keep your torso upright as you lower.', severity: 'warn', test: ({ landmarks }) => {
-          const lean = verticalDeviation(landmarks[L.LeftShoulder], landmarks[L.LeftHip]);
-          return lean != null && lean > 35;
+      { id: 'hands-narrow', bodyPart: 'arm', cue: 'Widen your grip slightly', say: 'A very narrow grip strains your wrists through the turnover — widen to just outside shoulder width.', severity: 'info', test: ({ landmarks }) => {
+          const sw = shoulderWidth(landmarks);
+          const lw = landmarks[L.LeftWrist]; const rw = landmarks[L.RightWrist];
+          if (sw == null || sw < 1e-4 || !lw || !rw || lw.visibility < 0.5 || rw.visibility < 0.5) return false;
+          return Math.abs(lw.x - rw.x) / sw < 0.9;
       }},
-    ],
-  }),
-  def({
-    slug: 'side-lunge', name: 'Side Lunge', category: 'lower', mode: 'reps', family: 'side-lunge', level: 1,
-    muscles: ['quads', 'glutes', 'hamstrings'], view: 'front', requiredJoints: STANDING,
-    setup: 'FACE the camera, standing 2–3 m back, full body in frame. It watches whichever leg you shift onto.',
-    summary: 'Lateral squat — steps sideways under control, working your inner and outer thighs.',
-    howTo: ['Stand tall, feet wide together.', 'Step one leg out to the side.', 'Bend that knee and sit your hips back, keeping the other leg straight.', 'Push off that foot back to center.'],
-    cues: [
-      'Push your hips back as you sit into the bent leg, like a sideways squat',
-      'Keep the straight leg\'s foot flat, don\'t let your weight roll onto its edge',
-      'Chest stays up and proud, don\'t round forward',
-      'Bent knee tracks over its toes, not caving inward',
-      'Push off firmly through the bent-leg heel to return to center',
-      'Keep your feet pointed roughly forward throughout',
-      'Control the step out — don\'t just fall sideways into position',
-      'Alternate sides evenly for balanced hip and inner-thigh strength',
-      'Go only as low as you can with a flat straight-leg foot',
-      'Keep your core braced to avoid twisting your hips',
-      'This targets your inner thighs and glutes more than a regular squat',
-      'Full stand back to center between reps',
-    ],
-    angles: MIN_KNEE, rep: { angle: 'knee', downBelow: 115, upAbove: 158 }, targetAngle: 100,
-    gauge: { angle: 'knee', label: 'Depth', downBelow: 115, upAbove: 158, target: 100 },
-    formRules: [
-      { id: 'shallow', bodyPart: 'leg', cue: 'Go lower', say: 'Sit deeper into the bent leg.', severity: 'info', test: ({ angles }) => angles.knee != null && angles.knee > 135 && angles.knee < 160 },
-      { id: 'chest-up', bodyPart: 'torso', cue: 'Chest up', say: 'Keep your chest up as you shift into the lunge.', severity: 'info', test: ({ landmarks }) => {
-          const lean = verticalDeviation(landmarks[L.LeftShoulder], landmarks[L.LeftHip]);
-          return lean != null && lean > 35;
+      { id: 'uneven-pull', bodyPart: 'arm', cue: 'Pull evenly with both arms', say: 'One arm is leading the pull and turnover — drive evenly on both sides to protect your shoulder.', severity: 'warn', test: ({ landmarks, angles }) => {
+          if (angles.elbow == null || angles.elbow > 155) return false;
+          const le = landmarks[L.LeftElbow]; const re = landmarks[L.RightElbow];
+          if (!allVisible(landmarks, [L.LeftShoulder, L.LeftElbow, L.LeftWrist, L.RightShoulder, L.RightElbow, L.RightWrist], 0.5) || !le || !re) return false;
+          const left = jointAngle(landmarks[L.LeftShoulder], le, landmarks[L.LeftWrist]);
+          const right = jointAngle(landmarks[L.RightShoulder], re, landmarks[L.RightWrist]);
+          return Math.abs(left - right) > 25;
       }},
-    ],
-  }),
-  def({
-    slug: 'glute-bridge', name: 'Glute Bridge', category: 'lower', mode: 'reps', family: 'glute-bridge', level: 1,
-    muscles: ['glutes', 'hamstrings', 'core'], view: 'side', requiredJoints: STANDING,
-    gate: ({ landmarks }) => isHorizontal(landmarks, 0.2),
-    setup: 'Film your SIDE at floor level, lying on your back with knees bent. It watches your hip rise and fall.',
-    summary: 'The essential glute exercise. Lying on your back, drive your hips up into a straight line.',
-    howTo: ['Lie on your back, knees bent, feet flat hip-width apart.', 'Squeeze your glutes and press through your heels.', 'Lift your hips until your body is a straight line knee to shoulder.', 'Lower with control, without fully resting between reps.'],
-    cues: [
-      'Squeeze your glutes hard at the top — that\'s the whole point of the rep',
-      'Push through your heels, not your toes',
-      'Lift until your knees, hips and shoulders form one straight line',
-      'Don\'t let your lower back overarch at the top — squeeze glutes, not just arch',
-      'Keep your feet flat, hip-width apart, close enough to touch your fingertips',
-      'Pause briefly at the top before lowering',
-      'Control the descent — don\'t just drop your hips',
-      'Keep your core lightly braced throughout',
-      'Breathe out as you lift, in as you lower',
-      'If your hamstrings cramp, move your feet slightly further from your hips',
-      'This is the foundation for single-leg glute bridges later',
-      'Higher reps work well here — glutes respond well to volume',
-    ],
-    angles: HIP_LIFT, rep: { angle: 'hip', downBelow: 105, upAbove: 135 }, targetAngle: 155,
-    gauge: { angle: 'hip', label: 'Lift', downBelow: 105, upAbove: 135, target: 155 },
-    formRules: [
-      { id: 'shallow', cue: 'Lift your hips', say: 'Drive your hips higher — squeeze your glutes at the top.', severity: 'info', test: ({ angles }) => angles.hip != null && angles.hip > 105 && angles.hip < 130 },
-    ],
-  }),
-  def({
-    slug: 'single-leg-glute-bridge', name: 'Single-Leg Glute Bridge', category: 'lower', mode: 'reps', family: 'glute-bridge', level: 2,
-    muscles: ['glutes', 'hamstrings', 'core'], view: 'side', requiredJoints: STANDING,
-    gate: ({ landmarks }) => isHorizontal(landmarks, 0.2),
-    setup: 'Film your SIDE at floor level. One knee bent and planted, the other leg extended straight.',
-    summary: 'Glute bridge on one leg — doubles the load on the working glute.',
-    howTo: ['Lie on your back, one knee bent and foot planted.', 'Extend the other leg straight, in line with your torso.', 'Drive through the planted heel to lift your hips level.', 'Lower with control, keeping hips square.'],
-    cues: [
-      'Keep your hips level — don\'t let the unsupported side drop',
-      'Squeeze the working glute hard at the top',
-      'Push through the planted heel, not your toes',
-      'Keep the extended leg in line with your torso, not sagging',
-      'This is much harder than the two-leg version — fewer reps is normal',
-      'Control the descent every rep, don\'t bounce',
-      'Keep your core braced to stop your hips twisting',
-      'Breathe out as you lift, in as you lower',
-      'If your lower back takes over, that means your glute isn\'t firing — slow down and refocus',
-      'Master the two-leg bridge first if this feels unstable',
-      'Do all reps on one side, then switch legs',
-      'Higher reps on each side build real single-leg strength',
-    ],
-    angles: HIP_LIFT, rep: { angle: 'hip', downBelow: 105, upAbove: 130 }, targetAngle: 150,
-    gauge: { angle: 'hip', label: 'Lift', downBelow: 105, upAbove: 130, target: 150 },
-    formRules: [
-      { id: 'shallow', cue: 'Lift your hips', say: 'Drive your hips higher and level.', severity: 'info', test: ({ angles }) => angles.hip != null && angles.hip > 105 && angles.hip < 125 },
+      { id: 'uneven-grip', bodyPart: 'arm', cue: 'Even out your grip height', say: 'One hand is noticeably higher on the bar than the other — even out your grip.', severity: 'info', test: ({ landmarks }) => {
+          const sw = shoulderWidth(landmarks);
+          const lw = landmarks[L.LeftWrist]; const rw = landmarks[L.RightWrist];
+          if (sw == null || sw < 1e-4 || !lw || !rw || lw.visibility < 0.5 || rw.visibility < 0.5) return false;
+          return Math.abs(lw.y - rw.y) / sw > 0.4;
+      }},
+      { id: 'shoulder-tilt', bodyPart: 'torso', cue: 'Keep your shoulders level', say: 'You\'re rotating unevenly around the bar — keep your shoulders level.', severity: 'warn', test: ({ landmarks }) => {
+          const sw = shoulderWidth(landmarks);
+          const ls = landmarks[L.LeftShoulder]; const rs = landmarks[L.RightShoulder];
+          if (sw == null || sw < 1e-4 || !ls || !rs || ls.visibility < 0.5 || rs.visibility < 0.5) return false;
+          return Math.abs(ls.y - rs.y) / sw > 0.4;
+      }},
     ],
   }),
   def({
     slug: 'wall-sit', name: 'Wall Sit', category: 'lower', mode: 'hold', family: 'wall-sit', level: 1,
     muscles: ['quads', 'glutes'], view: 'side', requiredJoints: STANDING,
+    gate: ({ landmarks }) => isWallSitting(landmarks),
     setup: 'Film your SIDE, phone upright 2–3 m away. Back flat against a wall, thighs parallel to the floor.',
     summary: 'A no-equipment quad burner. Sit against a wall like an invisible chair.',
     howTo: ['Back flat against a wall.', 'Walk your feet out and slide down until your thighs are parallel to the floor.', 'Knees stacked over your ankles, not past your toes.', 'Hold, breathing steadily.'],
@@ -1307,23 +1989,56 @@ export const EXERCISES: Exercise[] = [
       'Breathe steadily — don\'t hold your breath through the burn',
       'The burn in your quads is expected — that\'s the exercise working',
       'Keep your core braced to protect your lower back',
-      'Arms relaxed at your sides or resting on your thighs',
+      // FIXED: research is explicit that pressing your hands on your thighs
+      // is a common mistake — it takes load off the legs and makes the hold
+      // easier than it should be, the opposite of what this line said.
+      'Arms relaxed at your sides — don\'t press down on your thighs, it takes load off your legs',
       'Build time gradually — add 5–10s per week rather than chasing a max hold',
       'If your knees ache, check they aren\'t pushed forward past your toes',
       'A shaky finish is normal — that\'s near-failure, not a sign of doing it wrong',
       'Rest fully between attempts if you\'re doing more than one',
     ],
-    angles: KNEE, hold: { angle: 'knee', minOk: 60, maxOk: 115 }, targetAngle: 90,
+    angles: (lms) => ({ ...KNEE(lms), torsoLean: torsoLeanDeg(lms) }), hold: { angle: 'knee', minOk: 60, maxOk: 115 }, targetAngle: 90,
     gauge: { angle: 'knee', label: 'Angle', downBelow: 70, upAbove: 110, target: 90 },
     formRules: [
       { id: 'too-high', bodyPart: 'leg', cue: 'Sit lower', say: 'Slide down until your thighs are parallel to the floor.', severity: 'info', test: ({ angles }) => angles.knee != null && angles.knee > 115 },
-      { id: 'too-low', bodyPart: 'leg', cue: 'Come up slightly', say: 'You\'re below parallel — rise a touch to protect your knees.', severity: 'info', test: ({ angles }) => angles.knee != null && angles.knee < 65 },
+      // FIXED (B19): threshold (65) left a dead zone between it and the
+      // hold's own minOk (60) — credited AND corrected with no explanation
+      // for why the clock would stop just below it. Aligned to the same 60.
+      { id: 'too-low', bodyPart: 'leg', cue: 'Come up slightly', say: 'You\'re below parallel — rise a touch to protect your knees.', severity: 'info', test: ({ angles }) => angles.knee != null && angles.knee < 60 },
+      { id: 'back-off-wall-mild', bodyPart: 'torso', cue: 'Keep your back on the wall', say: 'Your back is starting to lift off the wall — press it flat again.', severity: 'info', test: ({ angles }) => angles.torsoLean != null && angles.torsoLean > 15 && angles.torsoLean <= 25 },
+      { id: 'back-off-wall', bodyPart: 'torso', cue: 'Press your back flat against the wall', say: 'Your back has come off the wall — press it flat for a safer, more effective hold.', severity: 'warn', test: ({ angles }) => angles.torsoLean != null && angles.torsoLean > 25 },
+      { id: 'knee-forward-mild', bodyPart: 'leg', cue: 'Watch your knees drifting forward', say: 'Your knees are starting to travel past your toes.', severity: 'info', test: ({ landmarks }) => {
+          const scale = torsoScale(landmarks);
+          const lk = landmarks[L.LeftKnee]; const la = landmarks[L.LeftAnkle];
+          const rk = landmarks[L.RightKnee]; const ra = landmarks[L.RightAnkle];
+          if (scale == null || scale < 1e-4) return false;
+          const off = (k: Landmark | undefined, a: Landmark | undefined) => k != null && a != null && k.visibility >= 0.5 && a.visibility >= 0.5 ? Math.abs(k.x - a.x) / scale : null;
+          const l = off(lk, la); const r = off(rk, ra);
+          const d = l != null && r != null ? Math.max(l, r) : (l ?? r);
+          return d != null && d > 0.35 && d <= 0.55;
+      }},
+      { id: 'knee-forward', bodyPart: 'leg', cue: 'Knees over your ankles', say: 'Your knees have traveled past your toes — walk your feet out further from the wall.', severity: 'warn', test: ({ landmarks }) => {
+          const scale = torsoScale(landmarks);
+          const lk = landmarks[L.LeftKnee]; const la = landmarks[L.LeftAnkle];
+          const rk = landmarks[L.RightKnee]; const ra = landmarks[L.RightAnkle];
+          if (scale == null || scale < 1e-4) return false;
+          const off = (k: Landmark | undefined, a: Landmark | undefined) => k != null && a != null && k.visibility >= 0.5 && a.visibility >= 0.5 ? Math.abs(k.x - a.x) / scale : null;
+          const l = off(lk, la); const r = off(rk, ra);
+          const d = l != null && r != null ? Math.max(l, r) : (l ?? r);
+          return d != null && d > 0.55;
+      }},
     ],
   }),
   def({
     slug: 'jump-squat', name: 'Jump Squat', category: 'lower', mode: 'reps', family: 'squat', level: 2,
     muscles: ['quads', 'glutes', 'calves'], view: 'side', requiredJoints: STANDING,
-    gate: ({ landmarks }) => feetPlanted(landmarks, 0.2),
+    // Same B10 reasoning as squat — require both knees moving together, not
+    // just feet planted, so a single-leg movement with feet stacked in x
+    // can't drive the counter. Tighter feet-planted margin (0.12 vs squat's
+    // 0.15) because a jump stance is narrower than a walking stride but still
+    // needs to reject that single step that was counting phantom reps.
+    gate: ({ landmarks }) => feetPlanted(landmarks, 0.12) && kneesSymmetric(landmarks),
     setup: 'Film your SIDE, phone upright 2–3 m away — head to feet in frame, with room to land.',
     summary: 'Explosive squat with a jump at the top — builds power, not just strength.',
     howTo: ['Squat down to about parallel.', 'Explode upward into a jump.', 'Land softly, bending your knees to absorb the impact.', 'Reset straight into the next rep.'],
@@ -1341,42 +2056,42 @@ export const EXERCISES: Exercise[] = [
       'A soft, quiet landing is the sign of good control',
       'Great finisher for a leg session, not necessarily a warm-up move',
     ],
-    angles: KNEE, rep: { angle: 'knee', downBelow: 110, upAbove: 160 }, targetAngle: 90,
-    gauge: { angle: 'knee', label: 'Depth', downBelow: 110, upAbove: 160, target: 90 },
+    // Heel-lift isn't tracked here (unlike the regular squat) — heels
+    // leaving the ground is expected and correct during the jump itself,
+    // not a fault, so porting that check over would contradict the move.
+    angles: (lms) => ({ ...KNEE(lms), torsoLean: torsoLeanDeg(lms) }),
+    rep: { angle: 'knee', downBelow: 100, upAbove: 160 }, targetAngle: 90,
+    gauge: { angle: 'knee', label: 'Depth', downBelow: 100, upAbove: 160, target: 90 },
     formRules: [
       { id: 'shallow', bodyPart: 'leg', cue: 'Go lower', say: 'Load the squat deeper before you explode up.', severity: 'info', test: ({ angles }) => angles.knee != null && angles.knee > 125 && angles.knee < 150 },
-    ],
-  }),
-  def({
-    slug: 'side-plank', name: 'Side Plank', category: 'core', mode: 'hold', family: 'side-plank', level: 1,
-    muscles: ['core', 'shoulders'], view: 'side', requiredJoints: STANDING,
-    gate: ({ landmarks }) => isHorizontal(landmarks, 0.2),
-    setup: 'Film your SIDE at floor level, propped on one forearm with your body stacked sideways.',
-    summary: 'Anti-lateral-flexion core hold. Stay flat and braced on your side.',
-    howTo: ['Lie on your side, propped on your forearm, elbow under your shoulder.', 'Stack your feet, or stagger them for balance.', 'Lift your hips so your body forms a straight line.', 'Hold, breathing steadily.'],
-    cues: [
-      'One straight line from head to feet — no sagging at the hips',
-      'Elbow stacked directly under your shoulder',
-      'Squeeze your obliques to keep your hips lifted',
-      'Don\'t let your top shoulder roll forward or back',
-      'Stack your feet for a harder hold, stagger them for more stability',
-      'Keep breathing — don\'t hold your breath',
-      'A slight hip sag is the first sign of fatigue — reset if you can',
-      'Prop your bottom knee down instead if the full version is too hard yet',
-      'Build time gradually on both sides evenly',
-      'Keep your neck neutral, gaze forward, not down',
-      'If your shoulder aches, check your elbow is directly under it, not out in front',
-      'Train both sides — most people are noticeably weaker on one',
-    ],
-    angles: BODYLINE, hold: { angle: 'bodyLine', minOk: 130, maxOk: 180 }, targetAngle: 178,
-    formRules: [
-      { id: 'sag', bodyPart: 'torso', cue: 'Lift your hips', say: 'Your hips are sagging — squeeze your obliques and lift them into line.', severity: 'warn', test: ({ angles }) => angles.bodyLine != null && angles.bodyLine < 158 },
+      { id: 'chest-up-mild', bodyPart: 'torso', cue: 'Keep your chest tall', say: 'Start lifting your chest before you fold forward any further.', severity: 'info', test: ({ angles }) => angles.torsoLean != null && angles.knee != null && angles.knee < 150 && angles.torsoLean > 30 && angles.torsoLean <= 45 },
+      { id: 'chest-up', bodyPart: 'torso', cue: 'Chest up', say: 'Keep your chest up as you load the jump — don\'t collapse forward.', severity: 'warn', test: ({ angles }) => angles.torsoLean != null && angles.knee != null && angles.knee < 150 && angles.torsoLean > 45 },
+      { id: 'knee-forward-mild', bodyPart: 'leg', cue: 'Watch your knees drifting forward', say: 'Your knees are starting to travel well past your toes — sit back into your hips a bit more.', severity: 'info', test: ({ landmarks }) => {
+          const scale = torsoScale(landmarks);
+          const lk = landmarks[L.LeftKnee]; const la = landmarks[L.LeftAnkle];
+          const rk = landmarks[L.RightKnee]; const ra = landmarks[L.RightAnkle];
+          if (scale == null || scale < 1e-4) return false;
+          const off = (k: Landmark | undefined, a: Landmark | undefined) => k != null && a != null && k.visibility >= 0.5 && a.visibility >= 0.5 ? Math.abs(k.x - a.x) / scale : null;
+          const l = off(lk, la); const r = off(rk, ra);
+          const d = l != null && r != null ? Math.max(l, r) : (l ?? r);
+          return d != null && d > 0.5 && d <= 0.8;
+      }},
+      { id: 'knee-forward', bodyPart: 'leg', cue: 'Sit back into your hips', say: 'Your knees are traveling too far past your toes as you load — push your hips back more.', severity: 'warn', test: ({ landmarks }) => {
+          const scale = torsoScale(landmarks);
+          const lk = landmarks[L.LeftKnee]; const la = landmarks[L.LeftAnkle];
+          const rk = landmarks[L.RightKnee]; const ra = landmarks[L.RightAnkle];
+          if (scale == null || scale < 1e-4) return false;
+          const off = (k: Landmark | undefined, a: Landmark | undefined) => k != null && a != null && k.visibility >= 0.5 && a.visibility >= 0.5 ? Math.abs(k.x - a.x) / scale : null;
+          const l = off(lk, la); const r = off(rk, ra);
+          const d = l != null && r != null ? Math.max(l, r) : (l ?? r);
+          return d != null && d > 0.8;
+      }},
     ],
   }),
   def({
     slug: 'superman-hold', name: 'Superman Hold', category: 'core', mode: 'hold', family: 'superman', level: 1,
     muscles: ['back', 'glutes', 'core'], view: 'side', requiredJoints: STANDING,
-    gate: ({ landmarks }) => isHorizontal(landmarks, 0.2),
+    gate: ({ landmarks }) => isHorizontal(landmarks, 0.2) && wristsKneesOffFloor(landmarks),
     setup: 'Film your SIDE at floor level, lying face down. It watches your shoulders and knees lift off the floor.',
     summary: 'Prone extension hold — strengthens the muscles that keep your back healthy.',
     howTo: ['Lie face down, arms extended in front of you.', 'Lift your chest, arms and legs off the floor together.', 'Hold a gentle arch, squeezing your lower back and glutes.', 'Lower with control at the end of the hold.'],
@@ -1394,35 +2109,37 @@ export const EXERCISES: Exercise[] = [
       'Build hold time gradually — this is a small-muscle endurance move',
       'Rest fully between attempts',
     ],
-    angles: HIP, hold: { angle: 'hip', minOk: 130, maxOk: 176 }, targetAngle: 155,
+    angles: (lms) => ({ ...HIP(lms), ...ELBOW(lms), ...KNEE(lms) }),
+    // maxOk tightened from 176 to 170 — laying completely flat on the ground
+    // with arms and legs down still read ~172-176° (nearly straight) and was
+    // counting phantom hold time. A real superman lift is well below this.
+    hold: { angle: 'hip', minOk: 130, maxOk: 170 }, targetAngle: 160,
+    // Previously had no gauge at all.
+    gauge: { angle: 'hip', label: 'Lift', downBelow: 145, upAbove: 176, target: 160 },
     formRules: [
-      { id: 'flat', cue: 'Lift higher', say: 'Lift your chest and legs higher off the floor.', severity: 'info', test: ({ angles }) => angles.hip != null && angles.hip > 176 },
-    ],
-  }),
-  def({
-    slug: 'hollow-hold', name: 'Hollow Body Hold', category: 'core', mode: 'hold', family: 'hollow-hold', level: 1,
-    muscles: ['core', 'hip flexors'], view: 'side', requiredJoints: STANDING,
-    gate: ({ landmarks }) => isHorizontal(landmarks, 0.2),
-    setup: 'Film your SIDE at floor level, lying on your back. It watches your shoulders and legs lift into the curve.',
-    summary: 'Full-body compression hold — the foundation for handstands, levers and gymnastics skills.',
-    howTo: ['Lie on your back, arms extended overhead.', 'Press your lower back into the floor.', 'Lift your shoulders and legs off the floor into a gentle curve.', 'Hold, keeping your lower back glued down.'],
-    cues: [
-      'Press your lower back flat into the floor — that\'s the whole point of the hold',
-      'Lift your shoulder blades and legs off the floor together',
-      'Keep your legs together, toes pointed',
-      'Arms stay by your ears or by your sides, not flailing',
-      'If your back arches off the floor, raise your legs higher until it presses back down',
-      'Breathe steadily — don\'t hold your breath',
-      'Bend your knees (tuck) if the straight-leg version breaks your form',
-      'This underpins nearly every advanced skill in the app — worth training often',
-      'A small, controlled curve beats a big shape with an arched back',
-      'Keep your neck relaxed, chin slightly tucked',
-      'Build hold time gradually — a shaky 10s is real progress',
-      'Rest fully between attempts — this fatigues your core fast',
-    ],
-    angles: HIP, hold: { angle: 'hip', minOk: 125, maxOk: 172 }, targetAngle: 150,
-    formRules: [
-      { id: 'flat', cue: 'Lift higher', say: 'Lift your shoulders and legs higher into the curve.', severity: 'info', test: ({ angles }) => angles.hip != null && angles.hip > 172 },
+      // Kept as pre-hold guidance (fires while too flat to count yet) — this
+      // was the exercise's ONLY cue, meaning zero live feedback ever fired
+      // during an actual hold. The rules below fix that.
+      { id: 'flat', cue: 'Lift higher', say: 'Lift your chest and legs higher off the floor.', severity: 'info', test: ({ angles }) => angles.hip != null && angles.hip > 170 },
+      // "Only need a few inches — overdoing it pinches the lower back" is
+      // literally this exercise's own static cue; this catches the excessive
+      // end of the hold window as a real, live fault instead of silently
+      // crediting time for a risky hyperextension.
+      { id: 'overextending-mild', bodyPart: 'torso', cue: 'Ease off the height', say: 'You\'re starting to overextend — this only needs a small, controlled lift.', severity: 'info', test: ({ angles }) => angles.hip != null && angles.hip < 155 && angles.hip >= 145 },
+      { id: 'overextending', bodyPart: 'torso', cue: 'Lift less, not more', say: 'That\'s more extension than this needs — ease off before it pinches your lower back.', severity: 'warn', test: ({ angles }) => angles.hip != null && angles.hip < 145 },
+      { id: 'uneven-lift', bodyPart: 'torso', cue: 'Lift both sides evenly', say: 'One side is lifting higher than the other — lift evenly on both.', severity: 'warn', test: ({ landmarks }) => {
+          const scale = torsoScale(landmarks);
+          const ls = landmarks[L.LeftShoulder]; const rs = landmarks[L.RightShoulder];
+          if (scale == null || scale < 1e-4 || !ls || !rs || ls.visibility < 0.5 || rs.visibility < 0.5) return false;
+          return Math.abs(ls.y - rs.y) / scale > 0.3;
+      }},
+      { id: 'neck', bodyPart: 'torso', cue: 'Keep your neck neutral', say: 'Keep your neck neutral — don\'t crane your head up to look forward.', severity: 'info', test: ({ landmarks }) => {
+          const nose = landmarks[L.Nose]; const ls = landmarks[L.LeftShoulder];
+          return nose != null && ls != null && nose.visibility >= 0.5 && ls.visibility >= 0.5
+            ? Math.abs(nose.x - ls.x) > 0.08 : false;
+      }},
+      { id: 'arms-not-reaching', bodyPart: 'arm', cue: 'Reach your arms long', say: 'Reach your arms out long instead of bending them.', severity: 'info', test: ({ angles }) => angles.elbow != null && angles.elbow < 160 },
+      { id: 'legs-bent', bodyPart: 'leg', cue: 'Reach your legs long', say: 'Keep your legs straight and long instead of bending your knees.', severity: 'info', test: ({ angles }) => angles.knee != null && angles.knee < 160 },
     ],
   }),
   def({
@@ -1446,70 +2163,34 @@ export const EXERCISES: Exercise[] = [
       'This builds directly toward L-sit and V-sit strength',
       'Quality over quantity — a handful of clean reps beats twenty sloppy ones',
     ],
-    angles: HIP, rep: { angle: 'hip', downBelow: 100, upAbove: 160 }, targetAngle: 90,
+    angles: (lms) => ({ ...HIP(lms), ...KNEE(lms) }), rep: { angle: 'hip', downBelow: 100, upAbove: 160 }, targetAngle: 90,
     gauge: { angle: 'hip', label: 'Height', downBelow: 100, upAbove: 160, target: 90 },
     formRules: [
       { id: 'shallow', cue: 'Lift higher', say: 'Lift your legs closer to vertical.', severity: 'info', test: ({ angles }) => angles.hip != null && angles.hip > 120 && angles.hip < 150 },
-    ],
-  }),
-  def({
-    slug: 'incline-pushup', name: 'Incline Push-Up', category: 'upper', mode: 'reps', family: 'push', level: 0.5,
-    muscles: ['chest', 'triceps', 'shoulders'], view: 'side', requiredJoints: ARMS_AND_HIPS,
-    setup: 'Film your SIDE, phone ~2 m away at bench height. Facing the camera is awkward on an incline — side-on shows your arm bend and body line clearly.',
-    summary: 'Easier push-up angle. Hands elevated, less bodyweight to press — the on-ramp to a full push-up.',
-    howTo: ['Hands on a stable elevated surface, shoulder-width.', 'Body in a straight line from head to heels.', 'Lower your chest toward your hands.', 'Press back up to a full lockout.'],
-    cues: [
-      'The higher the surface, the easier the rep — pick a height you can control',
-      'Keep your body in one straight line, don\'t let your hips sag',
-      'Elbows track back at about 45°, not flared wide',
-      'Full lockout at the top every rep',
-      'Lower until your chest nearly touches your hands',
-      'As this gets easy, lower the surface height to keep progressing',
-      'Control the descent — 2 seconds down builds more than dropping fast',
-      'Keep your neck neutral, gaze just ahead of your hands',
-      'This is a legitimate strength builder, not just a "beginner" move — own it',
-      'Once you can do 15–20 clean reps here, try a push-up on the flat floor',
-      'Brace your core so your hips don\'t drop as you fatigue',
-      'Make sure your surface is stable and won\'t slide as you push',
-    ],
-    angles: ELBOW_AND_BODYLINE, rep: { angle: 'elbow', downBelow: 120, upAbove: 158 }, targetAngle: 100,
-    gauge: { angle: 'elbow', label: 'Depth', downBelow: 120, upAbove: 158, target: 100 },
-    formRules: [
-      { id: 'body-line', bodyPart: 'torso', cue: 'Straighten your body', say: 'Keep your body in one straight line.', severity: 'warn', test: ({ angles }) => angles.bodyLine != null && angles.bodyLine < 160 },
-      { id: 'shallow', bodyPart: 'arm', cue: 'Go a little lower', say: 'Lower your chest closer to your hands.', severity: 'info', test: ({ angles }) => angles.elbow != null && angles.elbow > 135 && angles.elbow < 155 },
-    ],
-  }),
-  def({
-    slug: 'decline-pushup', name: 'Decline Push-Up', category: 'upper', mode: 'reps', family: 'push', level: 1.5,
-    muscles: ['chest', 'triceps', 'shoulders'], view: 'front', requiredJoints: ARMS, hideLegs: true,
-    gate: ({ landmarks }) => isProne(landmarks),
-    setup: 'FACE the camera: feet up on a chair or step behind you, hands on the floor, phone ~1.5–2 m in front.',
-    summary: 'Feet-elevated push-up — more shoulder and upper-chest load than a standard push-up.',
-    howTo: ['Feet up on a stable chair or box behind you.', 'Hands on the floor, shoulder-width.', 'Lower your chest toward the floor.', 'Press back up without letting your hips sag.'],
-    cues: [
-      'The higher your feet, the harder the rep — start modest',
-      'One straight line from head to heels, don\'t let your hips pike or sag',
-      'Elbows track back at about 45°, not flared wide',
-      'Full lockout at the top every rep',
-      'This shifts more load to your shoulders — expect fewer reps than flat push-ups',
-      'Control the descent — 2–3 seconds down is where the strength is built',
-      'Keep your neck neutral, gaze just ahead of your hands',
-      'Make sure your foot platform is stable before loading it fully',
-      'Brace your core hard — the incline makes hip sag more likely',
-      'If your shoulders pinch, lower the foot height until mobility improves',
-      'This bridges the gap between push-ups and pike push-ups',
-      'Warm up your shoulders and wrists before training this variation',
-    ],
-    angles: ELBOW_AND_BODYLINE, rep: { angle: 'elbow', downBelow: 100, upAbove: 155 }, targetAngle: 85,
-    gauge: { angle: 'elbow', label: 'Depth', downBelow: 100, upAbove: 155, target: 85 },
-    formRules: [
-      { id: 'body-line', bodyPart: 'torso', cue: 'Straighten your body', say: 'Keep your body in one straight line — don\'t let your hips sag or pike.', severity: 'warn', test: ({ angles }) => angles.bodyLine != null && angles.bodyLine < 158 },
-      { id: 'shallow', bodyPart: 'arm', cue: 'Go deeper', say: 'Lower your chest closer to the floor.', severity: 'info', test: ({ angles }) => angles.elbow != null && angles.elbow > 115 && angles.elbow < 140 },
+      { id: 'no-lockout', cue: 'Lower all the way', say: 'Lower all the way, just short of the floor, instead of stopping short.', severity: 'info', test: ({ angles }) => angles.hip != null && angles.hip >= 150 && angles.hip < 160 },
+      // Info, not warn — the exercise's own tips explicitly allow bending
+      // the knees slightly if straight legs force the back to arch, so this
+      // is a gentle nudge, not a hard fault the way it is elsewhere.
+      { id: 'legs-bent', bodyPart: 'leg', cue: 'Straighten your legs', say: 'Keep your legs straighter if you can do it without your back arching.', severity: 'info', test: ({ angles }) => angles.knee != null && angles.knee < 160 },
+      { id: 'uneven-legs', bodyPart: 'leg', cue: 'Raise both legs evenly', say: 'One leg is higher than the other — raise them together.', severity: 'warn', test: ({ landmarks }) => {
+          const scale = torsoScale(landmarks);
+          const la = landmarks[L.LeftAnkle]; const ra = landmarks[L.RightAnkle];
+          if (scale == null || scale < 1e-4 || !la || !ra || la.visibility < 0.5 || ra.visibility < 0.5) return false;
+          return Math.abs(la.y - ra.y) / scale > 0.35;
+      }},
     ],
   }),
   def({
     slug: 'jumping-jack', name: 'Jumping Jack', category: 'full', mode: 'reps', family: 'jumping-jack', level: 1,
-    muscles: ['quads', 'calves', 'shoulders'], view: 'front', requiredJoints: ARMS_AND_HIPS,
+    muscles: ['quads', 'calves', 'shoulders'], view: 'front', requiredJoints: STANDING,
+    // FIXED (B13): previously left entirely ungated — feetPlanted (built for
+    // a SIDE-view stacked-depth stance) is the wrong tool here since a
+    // jack's whole motion spreads both feet apart in x on every genuine rep,
+    // which would trip a "feet must stay close together" check constantly.
+    // isJackSymmetric checks the right thing instead: both sides moving as a
+    // mirrored pair, which a real jack always has and unrelated movement
+    // (walking, gesturing) generally doesn't.
+    gate: ({ landmarks }) => isJackSymmetric(landmarks),
     setup: 'FACE the camera, standing 2–3 m back, full body in frame with room to jump.',
     summary: 'The classic cardio warm-up. Arms and legs out, then back together.',
     howTo: ['Stand tall, feet together, arms at your sides.', 'Jump your feet apart while raising your arms overhead.', 'Jump back to feet together, arms back down.', 'Keep a steady rhythm.'],
@@ -1529,13 +2210,43 @@ export const EXERCISES: Exercise[] = [
     ],
     angles: JACK_ANGLE, rep: { angle: 'jack', downBelow: 70, upAbove: 140 }, targetAngle: 30,
     gauge: { angle: 'jack', label: 'Arms', downBelow: 70, upAbove: 140, target: 30 },
-    formRules: [],
+    // Deliberately conservative — jackAngle itself is a synthetic, not yet
+    // device-validated metric (see its own doc comment), so these two rules
+    // lean on more directly reliable raw landmarks instead of compounding
+    // uncertainty on top of it. A fuller set (e.g. "knees soft on landing")
+    // isn't included: jacks are mostly straight-legged by nature, so a naive
+    // knee-angle check would fire almost constantly, the same always-on
+    // failure mode the push-up elbow-flare bug already taught this app once.
+    formRules: [
+      { id: 'arms-not-overhead', bodyPart: 'arm', cue: 'Reach your arms all the way overhead', say: 'Get your arms all the way overhead, not just to shoulder height.', severity: 'info', test: ({ landmarks }) => {
+          const lw = landmarks[L.LeftWrist]; const rw = landmarks[L.RightWrist];
+          const ls = landmarks[L.LeftShoulder]; const rs = landmarks[L.RightShoulder];
+          const nose = landmarks[L.Nose];
+          if (!lw || !rw || !ls || !rs || !nose) return false;
+          if (lw.visibility < 0.5 || rw.visibility < 0.5 || ls.visibility < 0.5 || rs.visibility < 0.5 || nose.visibility < 0.5) return false;
+          const wristY = Math.min(lw.y, rw.y);
+          const shoulderY = (ls.y + rs.y) / 2;
+          // Raised (mid-to-top of the rep) but not yet above head height.
+          return wristY < shoulderY - 0.05 && wristY > nose.y + 0.03;
+      }},
+      { id: 'feet-too-wide', bodyPart: 'leg', cue: 'Land a little narrower', say: 'Feet roughly shoulder-width apart or a little more — that jump is wider than it needs to be.', severity: 'info', test: ({ landmarks }) => {
+          const sw = shoulderWidth(landmarks);
+          const la = landmarks[L.LeftAnkle]; const ra = landmarks[L.RightAnkle];
+          if (sw == null || sw < 1e-4 || !la || !ra || la.visibility < 0.5 || ra.visibility < 0.5) return false;
+          return Math.abs(la.x - ra.x) / sw > 2.5;
+      }},
+    ],
   }),
   def({
     slug: 'mountain-climbers', name: 'Mountain Climbers', category: 'full', mode: 'reps', family: 'mountain-climbers', level: 1,
-    muscles: ['core', 'quads', 'shoulders'], view: 'side', requiredJoints: STANDING,
+    muscles: ['core', 'quads', 'shoulders'],
+    // FIXED (B17): from side view `minHip` can only track the near-side knee
+    // drive — when the far knee drives in, the near leg stays straight at
+    // ~180° and the rep counter never sees the hip angle change, missing ~50%
+    // of reps. Front view makes BOTH knees visible so every knee drive counts.
+    view: 'front', requiredJoints: STANDING,
     gate: ({ landmarks }) => isProne(landmarks),
-    setup: 'Film your SIDE at floor level, in a high plank. It watches whichever knee is driving in.',
+    setup: 'FACE the camera at floor level, in a high plank. It watches both knees driving in — one after the other.',
     summary: 'Plank-position knee drives — a core and cardio combo.',
     howTo: ['Start in a high plank, hands under your shoulders.', 'Drive one knee toward your chest.', 'Quickly swap legs.', 'Keep your hips low and steady throughout.'],
     cues: [
@@ -1552,52 +2263,81 @@ export const EXERCISES: Exercise[] = [
       'Keep your shoulders stacked over your wrists the whole set',
       'Rest if your lower back starts to sag — that means you\'re fatiguing',
     ],
-    angles: MIN_HIP, rep: { angle: 'hip', downBelow: 100, upAbove: 160 }, targetAngle: 70,
-    gauge: { angle: 'hip', label: 'Drive', downBelow: 100, upAbove: 160, target: 70 },
+    // FIXED (B22): upAbove was 170 — the hip needs to open almost completely
+    // straight (~170°) between knee drives, which in a plank position with
+    // slightly elevated hips is biomechanically nearly impossible. Lowered to
+    // 150 so a natural plank-hip position between drives registers a rep
+    // completion without forcing an unnaturally flat hip extension.
+    angles: MIN_HIP_ELBOW_BODY,     rep: { angle: 'hip', downBelow: 80, upAbove: 150 }, targetAngle: 70,
+    gauge: { angle: 'hip', label: 'Drive', downBelow: 80, upAbove: 150, target: 70 },
     formRules: [
+      { id: 'hips-high-mild', bodyPart: 'torso', cue: 'Keep your hips down', say: 'Your hips are starting to ride up — keep them level with your shoulders.', severity: 'info', test: ({ landmarks }) => {
+          const s = pairY(landmarks, L.LeftShoulder, L.RightShoulder);
+          const h = pairY(landmarks, L.LeftHip, L.RightHip);
+          if (s == null || h == null) return false;
+          const sw = shoulderWidth(landmarks);
+          if (sw == null || sw < 1e-4) return false;
+          const diff = (s - h) / sw;
+          return diff > 0.4 && diff <= 0.7;
+      }},
       { id: 'hips-high', bodyPart: 'torso', cue: 'Lower your hips', say: 'Your hips are piking up — bring them back in line with your shoulders.', severity: 'warn', test: ({ landmarks }) => {
           const s = pairY(landmarks, L.LeftShoulder, L.RightShoulder);
           const h = pairY(landmarks, L.LeftHip, L.RightHip);
-          return s != null && h != null && (s - h) > 0.1;
+          if (s == null || h == null) return false;
+          const sw = shoulderWidth(landmarks);
+          return sw != null && sw > 1e-4 && (s - h) / sw > 0.7;
+      }},
+      { id: 'hips-sag', bodyPart: 'torso', cue: 'Don\'t let your hips sag', say: 'Your hips are dropping toward the floor — brace your core and lift them back to a straight line.', severity: 'warn', test: ({ landmarks }) => {
+          const s = pairY(landmarks, L.LeftShoulder, L.RightShoulder);
+          const h = pairY(landmarks, L.LeftHip, L.RightHip);
+          if (s == null || h == null) return false;
+          const sw = shoulderWidth(landmarks);
+          return sw != null && sw > 1e-4 && (h - s) / sw > 0.55;
+      }},
+      { id: 'body-line', bodyPart: 'torso', cue: 'Keep a straight line', say: 'Keep one straight line from your shoulders to your heels.', severity: 'info', test: ({ angles }) => angles.bodyLine != null && angles.bodyLine < 165 },
+      { id: 'hands-mild', bodyPart: 'arm', cue: 'Hands under your shoulders', say: 'Slide your hands back under your shoulders for a steadier base.', severity: 'info', test: ({ landmarks }) => { const o = stackOffset(landmarks, L.LeftWrist, L.RightWrist); return o != null && o > 0.4 && o <= 0.65; } },
+      { id: 'hands-not-stacked', bodyPart: 'arm', cue: 'Hands under your shoulders', say: 'Your hands have drifted well away from under your shoulders — plant them back underneath.', severity: 'warn', test: ({ landmarks }) => { const o = stackOffset(landmarks, L.LeftWrist, L.RightWrist); return o != null && o > 0.65; } },
+      { id: 'bent-arms', bodyPart: 'arm', cue: 'Keep your arms straight', say: 'Lock your supporting arms straight — don\'t let your elbows bend.', severity: 'warn', test: ({ angles }) => angles.elbow != null && angles.elbow < 160 },
+      { id: 'shallow-drive', bodyPart: 'leg', cue: 'Drive your knee closer to your chest', say: 'Drive your knee further in toward your chest, not just a tap.', severity: 'info', test: ({ angles }) => angles.hip != null && angles.hip > 115 && angles.hip < 145 },
+      { id: 'shrug', bodyPart: 'arm', cue: 'Relax your shoulders', say: 'Push your shoulders down away from your ears instead of shrugging.', severity: 'info', test: ({ landmarks }) => { const g = shrugGap(landmarks); return g != null && g < 0.15; } },
+      { id: 'neutral-neck', bodyPart: 'torso', cue: 'Keep your neck neutral', say: 'Keep your neck in line with your spine — don\'t crane your head up.', severity: 'info', test: ({ landmarks }) => {
+          const nose = landmarks[L.Nose]; const ls = landmarks[L.LeftShoulder];
+          return nose != null && ls != null && nose.visibility >= 0.5 && ls.visibility >= 0.5
+            ? Math.abs(nose.x - ls.x) > 0.06 : false;
       }},
     ],
   }),
-  def({
-    slug: 'high-knees', name: 'High Knees', category: 'full', mode: 'reps', family: 'high-knees', level: 1,
-    muscles: ['quads', 'hip flexors', 'calves'], view: 'front', requiredJoints: STANDING,
-    setup: 'FACE the camera, standing 2–3 m back, full body in frame. It watches whichever knee is driving up.',
-    summary: 'Standing, alternating knee drives at speed — a cardio and hip-flexor staple.',
-    howTo: ['Stand tall.', 'Drive one knee up toward hip height.', 'Quickly swap legs, staying light on your feet.', 'Pump your arms in rhythm with your legs.'],
-    cues: [
-      'Drive your knees up toward hip height, not just a light jog in place',
-      'Stay on the balls of your feet, light and quick',
-      'Keep your chest tall, don\'t hunch forward',
-      'Pump your arms in rhythm with your legs',
-      'Find a sustainable pace before trying to go all-out',
-      'Land softly under your hips each step, not out in front',
-      'Keep your core braced to stay upright and controlled',
-      'Breathe rhythmically as you go',
-      'This is a great way to spike your heart rate between strength sets',
-      'Keep a consistent rhythm rather than speeding up and stalling out',
-      'Look straight ahead, not down at your feet',
-      'Make sure you have a little space around you before starting',
-    ],
-    angles: MIN_HIP, rep: { angle: 'hip', downBelow: 100, upAbove: 160 }, targetAngle: 90,
-    gauge: { angle: 'hip', label: 'Drive', downBelow: 100, upAbove: 160, target: 90 },
-    formRules: [],
-  }),
 ];
 
+// The list `getExercise`/`getNextProgression`/`getPrevProgression` actually
+// read from — starts as the compiled-in EXERCISES, but `registry.ts` swaps it
+// for a remote-enriched merge (overrides + additions from GitHub) once one's
+// available. Everything that just wants one exercise by slug or the next/prev
+// step in a family (every screen except the handful that need the whole
+// catalog reactively) keeps calling these same three functions unchanged —
+// they transparently start seeing remote content the moment it loads, with
+// no per-call-site awareness needed. `registry.ts` imports EXERCISES/helpers
+// FROM this file, so this file can't import back from registry.ts (would be
+// circular) — `setActiveExercises` is how it pushes updates the other way.
+let activeExercises: Exercise[] = EXERCISES;
+
+/** Called by `registry.ts` whenever the remote-merged list changes (on
+ * startup rehydration and after every successful `refresh()`). Not meant to
+ * be called from anywhere else. */
+export function setActiveExercises(list: Exercise[]): void {
+  activeExercises = list;
+}
+
 export function getExercise(slug: string): Exercise | undefined {
-  return EXERCISES.find((e) => e.slug === slug);
+  return activeExercises.find((e) => e.slug === slug);
 }
 
 /** Next step in the same progression family (lowest level above this one). */
 export function getNextProgression(ex: Exercise): Exercise | undefined {
-  return EXERCISES.filter((e) => e.family === ex.family && e.level > ex.level).sort((a, b) => a.level - b.level)[0];
+  return activeExercises.filter((e) => e.family === ex.family && e.level > ex.level).sort((a, b) => a.level - b.level)[0];
 }
 
 /** Previous (easier) step in the same family. */
 export function getPrevProgression(ex: Exercise): Exercise | undefined {
-  return EXERCISES.filter((e) => e.family === ex.family && e.level < ex.level).sort((a, b) => b.level - a.level)[0];
+  return activeExercises.filter((e) => e.family === ex.family && e.level < ex.level).sort((a, b) => b.level - a.level)[0];
 }
