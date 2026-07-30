@@ -170,6 +170,9 @@ function StartWorkoutSheet({ visible, onClose }: { visible: boolean; onClose: ()
 
 function PurchaseModal({ exercise, onClose }: { exercise: Exercise | null; onClose: () => void }) {
   const t = useTheme();
+  const { hasAllAccess } = useSubscription();
+  if (hasAllAccess) return null;
+
   return (
     <Modal visible={exercise != null} transparent animationType="fade" onRequestClose={onClose}>
       <Pressable style={styles.overlay} onPress={onClose}>
@@ -185,31 +188,21 @@ function PurchaseModal({ exercise, onClose }: { exercise: Exercise | null; onClo
           <Pressable style={[styles.buyBtn, { backgroundColor: t.surface.raised, borderColor: t.ink.hairline }]}>
             <View style={{ flex: 1 }}>
               <Text variant="heading">{exercise?.name ?? ''}</Text>
-              <Text variant="caption" tone="secondary">
-                Just this exercise
-              </Text>
+              <Text variant="caption" tone="secondary">Just this exercise</Text>
             </View>
-            <Text variant="heading" tone="accent">
-              $1/mo
-            </Text>
+            <Text variant="heading" tone="accent">$1/mo</Text>
           </Pressable>
 
           <Pressable style={[styles.buyBtn, { backgroundColor: Feedback.good, borderColor: Feedback.good }]}>
             <View style={{ flex: 1 }}>
-              <Text variant="heading" style={{ color: '#000' }}>
-                All Access
-              </Text>
-              <Text variant="caption" style={{ color: 'rgba(0,0,0,0.6)' }}>
-                Every exercise, future updates
-              </Text>
+              <Text variant="heading" style={{ color: '#000' }}>All Access</Text>
+              <Text variant="caption" style={{ color: 'rgba(0,0,0,0.6)' }}>Every exercise, future updates</Text>
             </View>
-            <Text variant="heading" style={{ color: '#000' }}>
-              $5/mo
-            </Text>
+            <Text variant="heading" style={{ color: '#000' }}>$5/mo</Text>
           </Pressable>
 
           <Text variant="caption" tone="muted" style={{ textAlign: 'center', marginTop: Spacing.xs }}>
-            Subscriptions aren&apos;t live yet — check back soon.
+            Payments coming soon — use the All Access toggle in Settings for now.
           </Text>
         </Pressable>
       </Pressable>

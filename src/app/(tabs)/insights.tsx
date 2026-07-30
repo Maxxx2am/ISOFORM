@@ -32,6 +32,8 @@ export default function InsightsScreen() {
   const [sessions, setSessions] = useState<SessionRecord[] | null>(null);
   const [pickedId, setPickedId] = useState<string | null>(null);
   const [rankPickedId, setRankPickedId] = useState<string | null>(null);
+  const [showAllAchievements, setShowAllAchievements] = useState(false);
+  const [showAllMuscles, setShowAllMuscles] = useState(false);
   const profile = useProfile();
   const rankShareRef = useRef<RankShareCardHandle>(null);
 
@@ -207,14 +209,9 @@ export default function InsightsScreen() {
               </ScrollView>
               <View style={[styles.rankCard, { backgroundColor: t.surface.raised, borderColor: t.ink.hairline }]}>
                 <Image
-                  // Keyed by tier: without this, switching exercises could show
-                  // the PREVIOUS tier's bitmap stretched into the new tier's
-                  // aspect ratio for a frame (container resizes instantly on
-                  // re-render, but an unkeyed Image's old bitmap lingers until
-                  // the new source finishes loading) — a full remount avoids it.
                   key={rankSelected.tier}
                   source={RANK_ICONS[rankSelected.tier]}
-                  style={{ height: 190, aspectRatio: RANK_ICON_ASPECT[rankSelected.tier] }}
+                  style={{ height: 140, aspectRatio: RANK_ICON_ASPECT[rankSelected.tier] }}
                   resizeMode="contain"
                 />
                 <Text variant="heading" style={{ color: rankColor(rankSelected.tier), marginTop: Spacing.sm }}>
@@ -328,9 +325,20 @@ export default function InsightsScreen() {
                 </Text>
               </View>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.achRow}>
-                {achievements.map((a) => (
+                {(showAllAchievements ? achievements : achievements.slice(0, 4)).map((a) => (
                   <AchievementTile key={a.id} a={a} />
                 ))}
+                {achievements.length > 4 && !showAllAchievements ? (
+                  <Pressable
+                    onPress={() => setShowAllAchievements(true)}
+                    style={[styles.achTile, { justifyContent: 'center' }]}
+                  >
+                    <View style={[styles.expandBadge, { backgroundColor: t.surface.raised, borderColor: t.ink.hairline }]}>
+                      <Ionicons name="add" size={18} color={t.ink.secondary} />
+                    </View>
+                    <Text variant="caption" tone="muted">+{achievements.length - 4} more</Text>
+                  </Pressable>
+                ) : null}
               </ScrollView>
             </View>
           ) : null}
@@ -354,9 +362,18 @@ export default function InsightsScreen() {
 
           {insights.muscleFocus.length > 0 ? (
             <View style={{ marginTop: Spacing.lg }}>
-              <SectionLabel>Muscle focus</SectionLabel>
+              <View style={styles.sectionHeaderRow}>
+                <SectionLabel>Muscle focus</SectionLabel>
+                {insights.muscleFocus.length > 3 ? (
+                  <Pressable onPress={() => setShowAllMuscles(!showAllMuscles)} hitSlop={8}>
+                    <Text variant="caption" tone="muted">
+                      {showAllMuscles ? 'Show less' : `+${insights.muscleFocus.length - 3} more`}
+                    </Text>
+                  </Pressable>
+                ) : null}
+              </View>
               <View style={[styles.muscleCard, { backgroundColor: t.surface.raised, borderColor: t.ink.hairline }]}>
-                {insights.muscleFocus.slice(0, 6).map((m) => {
+                {(showAllMuscles ? insights.muscleFocus : insights.muscleFocus.slice(0, 3)).map((m) => {
                   const max = insights.muscleFocus[0].count;
                   const pct = Math.max(6, (m.count / max) * 100);
                   return (
@@ -615,6 +632,14 @@ const styles = StyleSheet.create({
     width: 18,
     height: 18,
     borderRadius: 9,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  expandBadge: {
+    width: 56,
+    height: 56,
+    borderRadius: Radius.pill,
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',

@@ -1,5 +1,6 @@
-import { ActivityIndicator, Pressable, StyleSheet, View, type ViewStyle } from 'react-native';
+import { ActivityIndicator, Animated, Pressable, StyleSheet, View, type ViewStyle } from 'react-native';
 import * as Haptics from 'expo-haptics';
+import { useRef } from 'react';
 
 import { Text } from '@/components/Text';
 import { Radius, Spacing } from '@/theme/palette';
@@ -17,10 +18,6 @@ type PrimaryButtonProps = {
   style?: ViewStyle;
 };
 
-/**
- * Large, thumb-zone pill button. Primary = white on black (ISOMTRIC .btn-p),
- * outline = raised surface with a hairline (.btn-o), ghost = accent text (.btn-g).
- */
 export function PrimaryButton({
   label,
   onPress,
@@ -31,6 +28,27 @@ export function PrimaryButton({
   style,
 }: PrimaryButtonProps) {
   const t = useTheme();
+  const scale = useRef(new Animated.Value(1)).current;
+
+  const handlePressIn = () => {
+    if (disabled || loading) return;
+    Animated.spring(scale, {
+      toValue: 0.97,
+      tension: 400,
+      friction: 25,
+      useNativeDriver: true,
+    }).start();
+  };
+
+  const handlePressOut = () => {
+    if (disabled || loading) return;
+    Animated.spring(scale, {
+      toValue: 1,
+      tension: 400,
+      friction: 18,
+      useNativeDriver: true,
+    }).start();
+  };
 
   const handlePress = () => {
     if (disabled || loading) return;
@@ -43,30 +61,39 @@ export function PrimaryButton({
   const fg =
     variant === 'primary' ? t.surface.base : variant === 'ghost' ? t.accent.color : t.ink.primary;
   const border = variant === 'outline' ? t.ink.hairline : 'transparent';
+  const isDisabled = disabled || loading;
 
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityState={{ disabled: !!disabled }}
       onPress={handlePress}
-      disabled={disabled || loading}
-      style={({ pressed }) => [
+      onPressIn={handlePressIn}
+      onPressOut={handlePressOut}
+      disabled={isDisabled}
+      style={[
         styles.base,
-        { backgroundColor: bg, borderColor: border, opacity: disabled ? 0.4 : pressed ? 0.88 : 1 },
-        pressed && !disabled ? styles.pressed : null,
+        {
+          backgroundColor: bg,
+          borderColor: border,
+          opacity: isDisabled ? 0.4 : 1,
+        },
+        variant === 'primary' && !isDisabled ? styles.shadow : null,
         style,
       ]}
     >
-      {loading ? (
-        <ActivityIndicator color={fg} />
-      ) : (
-        <View style={styles.content}>
-          {icon}
-          <Text variant="heading" style={{ color: fg, letterSpacing: -0.2 }}>
-            {label}
-          </Text>
-        </View>
-      )}
+      <Animated.View style={[styles.content, { transform: [{ scale }] }]}>
+        {loading ? (
+          <ActivityIndicator color={fg} />
+        ) : (
+          <View style={styles.content}>
+            {icon}
+            <Text variant="heading" style={{ color: fg, letterSpacing: -0.2 }}>
+              {label}
+            </Text>
+          </View>
+        )}
+      </Animated.View>
     </Pressable>
   );
 }
@@ -81,6 +108,12 @@ const styles = StyleSheet.create({
     paddingVertical: 17,
     paddingHorizontal: Spacing.lg,
   },
-  pressed: { transform: [{ scale: 0.98 }] },
+  shadow: {
+    shadowColor: '#FFFFFF',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.18,
+    shadowRadius: 8,
+    elevation: 4,
+  },
   content: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
 });

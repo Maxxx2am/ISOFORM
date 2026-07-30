@@ -3,12 +3,13 @@ import { StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
 
 import { Feedback } from '@/theme/palette';
 
-// The bottom "reached depth" zone and top "reached lockout" zone are always
-// drawn at this same fixed size — a glute bridge's down/up thresholds are
-// nowhere near a push-up's numerically, but the two green bands must still
-// look identical, the same way they do on a push-up.
-const VISUAL_DOWN = 0.2;
-const VISUAL_UP = 0.8;
+// The bottom "reached depth" zone and top "reached lockout" zone each
+// occupy 25% of the bar — the middle 50% is the transition zone. A rep
+// counts when you descend into the bottom green, then rise into the top
+// green. The zones are always this same fixed proportion regardless of the
+// exercise's actual angle range (the marker warps to match).
+const VISUAL_DOWN = 0.25;
+const VISUAL_UP = 0.75;
 
 // Fallback before the real height is measured (matches styles.gauge.height) —
 // callers like the review-screen replay override the track's height via the

@@ -319,7 +319,7 @@ export default function SettingsScreen() {
         <ListGroup>
           <ListRow
             title="All Access"
-            subtitle="Unlock every exercise — the only real unlock switch right now"
+            subtitle="Dev bypass — toggles unlock without payment. Ship with this OFF."
             right={<Toggle value={sub.hasAllAccess} onChange={(v) => (v ? sub.grantAllAccess() : sub.revokeAllAccess())} />}
           />
           <ListRow

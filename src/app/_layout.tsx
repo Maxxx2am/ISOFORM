@@ -2,6 +2,7 @@ import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useState } from 'react';
+import { InteractionManager } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
@@ -33,12 +34,17 @@ export default function RootLayout() {
     SplashScreen.hideAsync().catch(() => {});
   }, []);
 
-  // Kick off warming the rank/achievement/streak icon cache immediately at
-  // launch, in the background — see preloadAssets.ts for why this matters in
-  // Expo Go specifically. Fire-and-forget: never gates the splash or blocks
-  // the first screen.
+  // Preload rank/achievement/streak icons once the first screen has fully
+  // rendered — InteractionManager.runAfterInteractions queues work after
+  // the native transition + any pending animations finish, so this never
+  // competes with the initial frame. In a production build with bundled
+  // assets this is a no-op, but in Expo Go it saves 20+ Metro round-trips
+  // from hitting the bridge during the critical first render path.
   useEffect(() => {
-    preloadAppImages();
+    const handle = InteractionManager.runAfterInteractions(() => {
+      preloadAppImages();
+    });
+    return () => handle.cancel();
   }, []);
 
   if (fatal) return <FatalErrorScreen error={fatal} />;
