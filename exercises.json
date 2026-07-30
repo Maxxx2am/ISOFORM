@@ -1,6 +1,12 @@
 {
-  "version": 2,
+  "version": 3,
   "changelog": [
+    {
+      "version": 3,
+      "date": "2026-07-30",
+      "title": "Rep gauge green zones expanded to 25%, faster launch, collapsible insights",
+      "body": "- Rep gauge: green zone expanded from 20% to 25% at both ends (depth + lockout) — easier to stay in the green\n- Launch: assets now load after first screen renders, so the app opens faster\n- Insights: achievements & muscle focus sections are now collapsible (show 4 + \"more\" button)\n- Buttons: spring-animated press effect on every primary action button"
+    },
     {
       "version": 2,
       "date": "2026-07-29",

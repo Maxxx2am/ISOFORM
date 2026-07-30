@@ -5,12 +5,14 @@ import * as FileSystem from 'expo-file-system/legacy';
 import { router } from 'expo-router';
 import * as Sharing from 'expo-sharing';
 import { useEffect, useState } from 'react';
-import { Alert, Linking, Pressable, Share, StyleSheet, Switch, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, Linking, Pressable, Share, StyleSheet, Switch, TextInput, View } from 'react-native';
 
 import { ListGroup, ListRow, SectionLabel } from '@/components/ListGroup';
 import { Screen } from '@/components/Screen';
 import { Text } from '@/components/Text';
+import { useExerciseRegistry } from '@/exercises/registry';
 import { buildDebugInfo, deleteAllData, exportDataAsJson, resetSettingsAndProfile, seedDemoSessions, triggerTestCrash } from '@/lib/devTools';
+import { formatRelativeDay } from '@/lib/format';
 import { cmToFeetInches, feetInchesToCm, kgToLb, lbToKg, useProfile } from '@/store/profile';
 import { useSettings, type CameraFacing } from '@/store/settings';
 import { useSubscription } from '@/store/subscription';
@@ -296,6 +298,11 @@ export default function SettingsScreen() {
       </View>
 
       <View style={{ marginTop: Spacing.lg }}>
+        <SectionLabel>Content updates</SectionLabel>
+        <ContentUpdatesWidget />
+      </View>
+
+      <View style={{ marginTop: Spacing.lg }}>
         <SectionLabel>Legal</SectionLabel>
         <ListGroup>
           <ListRow title="Terms of Use" onPress={() => router.push('/legal/terms')} chevron />
@@ -556,3 +563,71 @@ const styles = StyleSheet.create({
   segItem: { paddingHorizontal: 12, paddingVertical: 5, borderRadius: Radius.pill },
   footer: { textAlign: 'center', marginTop: Spacing.xl },
 });
+
+function ContentUpdatesWidget() {
+  const t = useTheme();
+  const registry = useExerciseRegistry();
+  const latest = registry.changelog.length > 0
+    ? registry.changelog.slice().sort((a, b) => b.version - a.version)[0]
+    : null;
+  const hasNewContent = registry.remoteVersion > registry.lastSeenVersion;
+  const lastChecked = registry.lastCheckedAt
+    ? formatRelativeDay(registry.lastCheckedAt)
+    : 'Never';
+
+  return (
+    <View
+      style={{
+        borderWidth: 1,
+        borderColor: t.ink.hairline,
+        borderRadius: Radius.md,
+        backgroundColor: t.surface.raised,
+        padding: Spacing.md,
+        gap: Spacing.sm,
+      }}
+    >
+      {registry.refreshing ? (
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm }}>
+          <ActivityIndicator size="small" color={t.ink.muted} />
+          <Text variant="caption" tone="secondary">Checking for updates...</Text>
+        </View>
+      ) : latest ? (
+        <View style={{ gap: 3 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            {hasNewContent ? <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: Feedback.good }} /> : null}
+            <Text variant="caption" tone="muted">{latest.date}</Text>
+          </View>
+          <Text variant="body" style={{ fontWeight: '700', color: t.ink.primary }}>{latest.title}</Text>
+          <Text variant="caption" tone="secondary">{latest.body}</Text>
+        </View>
+      ) : (
+        <View style={{ gap: 3 }}>
+          <Text variant="body" style={{ fontWeight: '700', color: t.ink.primary }}>No updates yet</Text>
+          <Text variant="caption" tone="secondary">
+            Exercise fixes and additions will appear here once the remote file is set up.
+          </Text>
+        </View>
+      )}
+
+      <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4 }}>
+        <Text variant="caption" tone="muted" style={{ flex: 1, marginRight: Spacing.sm }}>
+          {hasNewContent
+            ? 'New update available — see above'
+            : `Checked ${lastChecked}`}
+          {' '}· auto on launch
+        </Text>
+        <Pressable
+          hitSlop={8}
+          onPress={() => registry.refresh()}
+          disabled={registry.refreshing}
+          style={({ pressed }) => [
+            { paddingHorizontal: Spacing.sm, paddingVertical: 4, borderRadius: Radius.pill, backgroundColor: t.surface.sunken, opacity: registry.refreshing ? 0.4 : 1 },
+            pressed && { opacity: 0.6 },
+          ]}
+        >
+          <Ionicons name="refresh" size={15} color={t.ink.secondary} />
+        </Pressable>
+      </View>
+    </View>
+  );
+}
