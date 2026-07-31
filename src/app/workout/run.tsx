@@ -103,12 +103,15 @@ export default function WorkoutRunScreen() {
     );
   }
 
-  const step = workout.steps[stepIndex];
-  const exercise = getExercise(step.exerciseSlug);
-  if (!exercise) {
+  const step = stepIndex < workout.steps.length ? workout.steps[stepIndex] : null;
+  const exercise = step ? getExercise(step.exerciseSlug) : undefined;
+  if (!step || !exercise) {
     return (
       <Screen>
-        <Text>Exercise not found.</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.md, paddingTop: Spacing.md }}>
+          <BackButton />
+        </View>
+        <Text style={{ marginTop: Spacing.lg, textAlign: 'center' }}>Exercise not found.</Text>
       </Screen>
     );
   }

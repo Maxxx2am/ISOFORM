@@ -81,7 +81,11 @@ export default function SettingsScreen() {
     setBusy('debug');
     try {
       const info = await buildDebugInfo();
-      await Share.share({ message: info });
+      if (await Sharing.isAvailableAsync()) {
+        await Share.share({ message: info });
+      } else {
+        Alert.alert('Debug info', info);
+      }
     } finally {
       setBusy(null);
     }

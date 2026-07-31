@@ -109,6 +109,9 @@ export class SessionEngine {
     this.form = new FormAnalyzer(exercise);
     this.primaryAngle = exercise.rep?.angle ?? exercise.hold?.angle ?? '';
     this.isAdaptive = exercise.slug === 'pushup';
+    if (__DEV__) {
+      console.log(`[Engine] ${exercise.slug} | mode=${exercise.mode} | primary=${this.primaryAngle} | adaptive=${this.isAdaptive} | rep=${JSON.stringify(exercise.rep)} | hold=${JSON.stringify(exercise.hold)}`);
+    }
   }
 
   /** Current rep thresholds (calibrated for push-ups). Used by the gauge. */

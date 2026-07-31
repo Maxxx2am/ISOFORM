@@ -562,7 +562,7 @@ type Def = {
   slug: string; name: string; category: ExerciseCategory; mode: ExerciseMode;
   family: string; level: number; muscles: Muscle[]; summary: string; howTo: string[]; cues: string[];
   view?: Exercise['view']; setup?: string; hideLegs?: boolean; showBar?: boolean;
-  angles?: Exercise['angles']; rep?: Exercise['rep']; adaptiveRep?: Exercise['adaptiveRep']; hold?: Exercise['hold'];
+  angles?: Exercise['angles']; rep?: Exercise['rep']; hold?: Exercise['hold'];
   gauge?: Exercise['gauge'];
   gate?: Exercise['gate']; requiredJoints?: Exercise['requiredJoints']; targetAngle?: number;
   countEccentric?: Exercise['countEccentric'];
@@ -607,7 +607,7 @@ export const EXERCISES: Exercise[] = [
       'If your lower back aches, your hips are probably sagging — brace your core first',
       'Plateaued? Elevate your feet slightly to add load before harder variations',
     ],
-    angles: ELBOW_AND_BODYLINE, rep: PUSH_REP, adaptiveRep: true, targetAngle: 90, gate: ({ landmarks }) => isProne(landmarks),
+    angles: ELBOW_AND_BODYLINE, rep: PUSH_REP, targetAngle: 90, gate: ({ landmarks }) => isProne(landmarks),
     gauge: { angle: 'elbow', label: 'Depth', downBelow: 95, upAbove: 155, target: 90 },
     formRules: [
       // bodyLine is UNSIGNED (jointAngle can't tell a sag from a pike — both
@@ -847,6 +847,7 @@ export const EXERCISES: Exercise[] = [
     // hips while they're actually piking would be exactly backwards), so
     // 'sag'/'piked' use the signed hipLineDeviation instead of this angle.
     angles: BODYLINE_AND_KNEE, hold: { angle: 'bodyLine', minOk: 158, maxOk: 180 }, targetAngle: 178,
+    gauge: { angle: 'bodyLine', label: 'Line', downBelow: 158, upAbove: 180, target: 178 },
     formRules: [
       { id: 'body-line', bodyPart: 'torso', cue: 'Tighten your line', say: 'Brace your core and glutes — tighten that line from head to heels.', severity: 'info', test: ({ angles }) => angles.bodyLine != null && angles.bodyLine < 168 },
       { id: 'sag', bodyPart: 'torso', cue: 'Lift your hips', say: 'Your hips are sagging — squeeze your glutes and lift them into line.', severity: 'warn', test: ({ landmarks }) => { const d = hipLineDeviation(landmarks); return d != null && d < -0.05; } },
@@ -1086,7 +1087,7 @@ export const EXERCISES: Exercise[] = [
     gauge: { angle: 'hip', label: 'Tuck', downBelow: 20, upAbove: 80, target: 50 },
     formRules: [
       { id: 'locked-arms', bodyPart: 'arm', cue: 'Lock your arms', say: 'Fully extend your elbows — straight arms.', severity: 'warn', test: ({ angles }) => angles.elbow != null && angles.elbow < 160 },
-      { id: 'feet-up', cue: 'Lift your feet', say: 'Pull your feet off the floor — float.', severity: 'info', test: ({ landmarks }) => {
+      { id: 'feet-up', bodyPart: 'leg', cue: 'Lift your feet', say: 'Pull your feet off the floor — float.', severity: 'info', test: ({ landmarks }) => {
           // Missing data must never invent a fault — only flag when both
           // points are actually visible and the feet are confirmed low.
           const a = pairY(landmarks, L.LeftAnkle, L.RightAnkle, 'min');
@@ -1662,7 +1663,7 @@ export const EXERCISES: Exercise[] = [
     formRules: [
       { id: 'bent-legs-mild', bodyPart: 'leg', cue: 'Lock your knees', say: 'Your knees are starting to bend — lock them out straight.', severity: 'info', test: ({ angles }) => angles.knee != null && angles.knee < 165 && angles.knee >= 150 },
       { id: 'bent-legs', bodyPart: 'leg', cue: 'Straighten your legs', say: 'Lock your knees and point your toes.', severity: 'warn', test: ({ angles }) => angles.knee != null && angles.knee < 150 },
-      { id: 'low', cue: 'Lift higher', say: 'Lift your legs closer to vertical, toward a real V.', severity: 'info', test: ({ angles }) => angles.hip != null && angles.hip > 65 && angles.hip < 90 },
+      { id: 'low', bodyPart: 'leg', cue: 'Lift higher', say: 'Lift your legs closer to vertical, toward a real V.', severity: 'info', test: ({ angles }) => angles.hip != null && angles.hip > 65 && angles.hip < 90 },
       { id: 'locked-arms', bodyPart: 'arm', cue: 'Press through straight arms', say: 'Press down through straight arms — don\'t let your elbows bend as you lift.', severity: 'warn', test: ({ angles }) => angles.elbow != null && angles.elbow < 160 },
       { id: 'shrug', bodyPart: 'arm', cue: 'Relax your shoulders', say: 'Keep your shoulders down, away from your ears.', severity: 'info', test: ({ landmarks }) => { const g = shrugGap(landmarks); return g != null && g < 0.15; } },
       { id: 'uneven-legs', bodyPart: 'leg', cue: 'Raise both legs evenly', say: 'One leg is higher than the other — lift them together.', severity: 'warn', test: ({ landmarks }) => {
@@ -1833,7 +1834,7 @@ export const EXERCISES: Exercise[] = [
     gauge: { angle: 'hip', label: 'Compression', downBelow: 60, upAbove: 155, target: 40 },
     formRules: [
       { id: 'bent-arms', bodyPart: 'arm', cue: 'Straight arms', say: 'Keep your arms locked at the bottom.', severity: 'warn', test: ({ angles }) => angles.elbow != null && angles.elbow < 160 },
-      { id: 'partial', cue: 'Knees higher', say: 'Raise your knees above your hips.', severity: 'info', test: ({ angles }) => angles.hip != null && angles.hip > 70 && angles.hip < 140 },
+      { id: 'partial', bodyPart: 'leg', cue: 'Knees higher', say: 'Raise your knees above your hips.', severity: 'info', test: ({ angles }) => angles.hip != null && angles.hip > 70 && angles.hip < 140 },
       { id: 'swinging', bodyPart: 'torso', cue: 'Stop swinging', say: 'Control the movement — no momentum.', severity: 'warn', test: ({ landmarks }) => {
           const ls = landmarks[L.LeftShoulder]; const rs = landmarks[L.RightShoulder];
           const lh = landmarks[L.LeftHip]; const rh = landmarks[L.RightHip];
@@ -1923,7 +1924,7 @@ export const EXERCISES: Exercise[] = [
     angles: ELBOW_AND_BODYLINE, rep: { angle: 'elbow', downBelow: 85, upAbove: 155 }, targetAngle: 90,
     gauge: { angle: 'elbow', label: 'Pull depth', downBelow: 85, upAbove: 155, target: 90 },
     formRules: [
-      { id: 'no-transition', cue: 'Punch through the transition', say: 'Rotate your elbows over the bar as you reach the top of your pull.', severity: 'warn', test: ({ landmarks, angles }) => {
+      { id: 'no-transition', bodyPart: 'arm', cue: 'Punch through the transition', say: 'Rotate your elbows over the bar as you reach the top of your pull.', severity: 'warn', test: ({ landmarks, angles }) => {
           // Only during an active pull (elbow meaningfully bent) — otherwise
           // this was true for the entire dead hang between reps too, since a
           // straight-arm hang also has wrists well below shoulders.
@@ -1936,7 +1937,7 @@ export const EXERCISES: Exercise[] = [
           // If wrists are well below shoulders (fail transition) while elbows are bent
           return wristY > shoulderY + 0.08;
       }},
-      { id: 'catch-low', cue: 'Pull higher before you turn over', say: 'You\'re catching the transition too low — pull higher before rotating over the bar.', severity: 'warn', test: ({ angles }) => angles.elbow != null && angles.elbow > 95 && angles.elbow < 130 },
+      { id: 'catch-low', bodyPart: 'arm', cue: 'Pull higher before you turn over', say: 'You\'re catching the transition too low — pull higher before rotating over the bar.', severity: 'warn', test: ({ angles }) => angles.elbow != null && angles.elbow > 95 && angles.elbow < 130 },
       { id: 'no-lockout', bodyPart: 'arm', cue: 'Full lockout at the top', say: 'Press all the way to a full lockout at the top of the support.', severity: 'info', test: ({ angles }) => angles.elbow != null && angles.elbow >= 130 && angles.elbow < 150 },
       { id: 'banana', bodyPart: 'torso', cue: 'Keep your body tight', say: 'Keep your line tight through the pull — don\'t let your back arch.', severity: 'warn', test: ({ angles }) => angles.bodyLine != null && angles.bodyLine < 150 },
       { id: 'shrug', bodyPart: 'arm', cue: 'Relax your shoulders first', say: 'Starting with your shoulders hunched up disengages your lats — relax and hang first.', severity: 'info', test: ({ landmarks }) => { const g = shrugGap(landmarks); return g != null && g < 0.15; } },
@@ -2120,7 +2121,7 @@ export const EXERCISES: Exercise[] = [
       // Kept as pre-hold guidance (fires while too flat to count yet) — this
       // was the exercise's ONLY cue, meaning zero live feedback ever fired
       // during an actual hold. The rules below fix that.
-      { id: 'flat', cue: 'Lift higher', say: 'Lift your chest and legs higher off the floor.', severity: 'info', test: ({ angles }) => angles.hip != null && angles.hip > 170 },
+      { id: 'flat', bodyPart: 'torso', cue: 'Lift higher', say: 'Lift your chest and legs higher off the floor.', severity: 'info', test: ({ angles }) => angles.hip != null && angles.hip > 170 },
       // "Only need a few inches — overdoing it pinches the lower back" is
       // literally this exercise's own static cue; this catches the excessive
       // end of the hold window as a real, live fault instead of silently
@@ -2166,8 +2167,8 @@ export const EXERCISES: Exercise[] = [
     angles: (lms) => ({ ...HIP(lms), ...KNEE(lms) }), rep: { angle: 'hip', downBelow: 100, upAbove: 160 }, targetAngle: 90,
     gauge: { angle: 'hip', label: 'Height', downBelow: 100, upAbove: 160, target: 90 },
     formRules: [
-      { id: 'shallow', cue: 'Lift higher', say: 'Lift your legs closer to vertical.', severity: 'info', test: ({ angles }) => angles.hip != null && angles.hip > 120 && angles.hip < 150 },
-      { id: 'no-lockout', cue: 'Lower all the way', say: 'Lower all the way, just short of the floor, instead of stopping short.', severity: 'info', test: ({ angles }) => angles.hip != null && angles.hip >= 150 && angles.hip < 160 },
+      { id: 'shallow', bodyPart: 'leg', cue: 'Lift higher', say: 'Lift your legs closer to vertical.', severity: 'info', test: ({ angles }) => angles.hip != null && angles.hip > 120 && angles.hip < 150 },
+      { id: 'no-lockout', bodyPart: 'leg', cue: 'Lower all the way', say: 'Lower all the way, just short of the floor, instead of stopping short.', severity: 'info', test: ({ angles }) => angles.hip != null && angles.hip >= 150 && angles.hip < 160 },
       // Info, not warn — the exercise's own tips explicitly allow bending
       // the knees slightly if straight legs force the back to arch, so this
       // is a gentle nudge, not a hard fault the way it is elsewhere.

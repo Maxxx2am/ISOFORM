@@ -59,8 +59,6 @@ const CUE_ADVICE: Record<string, string> = {
   'Lift your legs higher': 'Push your legs closer to vertical — your core can take it.',
   // Pistol
   'Straighten your extended leg': 'Keep your front leg locked straight — bent makes the squat harder and less effective.',
-  // Diamond Push-Up
-  'Elbows back, not out': 'Point your elbows toward your feet, not out to the sides — triceps need the right angle.',
   // Hanging Knee Raise
   'Knees higher': 'Raise your knees above your hips for a full contraction — partial reps waste the set.',
   'Stop swinging': 'Control the movement with your core, not momentum. Pause at the top and bottom.',

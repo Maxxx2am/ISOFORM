@@ -2,7 +2,7 @@
   "expo": {
     "name": "ISOFORM",
     "slug": "iso-form",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "isoform",
@@ -12,7 +12,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.maxxxdev.isoform",
-      "buildNumber": "17",
+      "buildNumber": "18",
       "infoPlist": {
         "UIViewControllerBasedStatusBarAppearance": true,
         "NSCameraUsageDescription": "ISOFORM uses the camera to track your body and check your exercise form on-device. Nothing leaves your phone.",
@@ -23,9 +23,6 @@
     "android": {
       "package": "com.maxxxdev.isoform",
       "permissions": [
-        "android.permission.CAMERA",
-        "android.permission.RECORD_AUDIO",
-        "android.permission.MODIFY_AUDIO_SETTINGS",
         "android.permission.CAMERA",
         "android.permission.RECORD_AUDIO",
         "android.permission.MODIFY_AUDIO_SETTINGS"

@@ -378,9 +378,16 @@ export function ExerciseTracker({
           </Text>
         </Pressable>
         {camError ? (
-          <Text variant="caption" tone="secondary" style={styles.errText}>
-            Camera unavailable ({camError}). Showing demo.
-          </Text>
+          <View style={[styles.errBox, { backgroundColor: t.surface.raised, borderColor: t.ink.hairline }]}>
+            <Ionicons name="wifi-outline" size={24} color={t.ink.secondary} />
+            <Text variant="body" style={{ textAlign: 'center', color: t.ink.primary, marginTop: Spacing.xs }}>
+              Connect to Wi-Fi once
+            </Text>
+            <Text variant="caption" tone="secondary" style={{ textAlign: 'center', marginTop: 4 }}>
+              The body tracker needs to download once (~4 MB) before your first workout.
+              After that, everything works offline.
+            </Text>
+          </View>
         ) : null}
       </View>
 
@@ -568,7 +575,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     backgroundColor: 'rgba(0,0,0,0.45)',
   },
-  errText: { paddingHorizontal: Spacing.lg, textAlign: 'center' },
+  errBox: { marginHorizontal: Spacing.lg, padding: Spacing.lg, borderRadius: Radius.md, borderWidth: 1, alignItems: 'center', gap: Spacing.xs },
   center: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, alignItems: 'center', justifyContent: 'center' },
   gate: { alignItems: 'center', gap: Spacing.sm, paddingHorizontal: Spacing.xl },
   count: { fontSize: 120, fontWeight: '800', color: '#FFFFFF', fontVariant: ['tabular-nums'] },

@@ -182,8 +182,16 @@ function PurchaseModal({ exercise, onClose }: { exercise: Exercise | null; onClo
             {exercise?.name ?? ''}
           </Text>
           <Text tone="secondary" style={{ textAlign: 'center', marginTop: Spacing.xs }}>
-            Unlock this exercise or get access to everything.
+            Real-time AI form coaching + rep tracking for every exercise.
           </Text>
+          <View style={{ flexDirection: 'row', gap: Spacing.sm, marginTop: Spacing.xs }}>
+            {['Rep counting', 'Form coach', 'Depth gauge', 'Session review'].map((feat) => (
+              <View key={feat} style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                <Ionicons name="checkmark-circle" size={14} color={Feedback.good} />
+                <Text variant="caption" tone="secondary">{feat}</Text>
+              </View>
+            ))}
+          </View>
 
           <Pressable style={[styles.buyBtn, { backgroundColor: t.surface.raised, borderColor: t.ink.hairline }]}>
             <View style={{ flex: 1 }}>

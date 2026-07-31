@@ -124,6 +124,10 @@
     "mountain-climbers": {
       "rep": { "downBelow": 90, "upAbove": 140 },
       "gauge": { "downBelow": 90, "upAbove": 140 }
+    },
+    "hspu-90": {
+      "rep": { "downBelow": 100, "upAbove": 138 },
+      "gauge": { "downBelow": 100, "upAbove": 138 }
     }
   },
   "additions": []

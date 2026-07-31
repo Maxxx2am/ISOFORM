@@ -59,8 +59,11 @@ function getDb(): Promise<SQLite.SQLiteDatabase> {
       ]) {
         try {
           await db.execAsync(ddl);
-        } catch {
-          // Column already exists.
+        } catch (e: unknown) {
+          const msg = String(e);
+          if (!msg.includes('duplicate column') && !msg.includes('already exists')) {
+            throw e;
+          }
         }
       }
       return db;
@@ -77,30 +80,35 @@ export async function saveSession(
   videoUri: string | null,
   timeline: TimelineSample[] = [],
   videoAspect?: number,
-): Promise<void> {
-  const db = await getDb();
-  const score = scoreSession(summary);
-  const trimmed = trimTimelineForStorage(summary, timeline);
-  await db.runAsync(
-    `INSERT INTO sessions
+): Promise<boolean> {
+  try {
+    const db = await getDb();
+    const score = scoreSession(summary);
+    const trimmed = trimTimelineForStorage(summary, timeline);
+    await db.runAsync(
+      `INSERT INTO sessions
       (id, exerciseId, exerciseName, createdAt, durationMs, reps, holdSeconds, avgBottomAngle, cues, videoUri, score, firstActionMs, lastActionMs, timeline, videoAspect)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    id,
-    summary.exerciseId,
-    exerciseName,
-    createdAt,
-    summary.durationMs,
-    summary.reps,
-    summary.holdSeconds,
-    summary.avgBottomAngle,
-    JSON.stringify(summary.cues),
-    videoUri,
-    score,
-    summary.firstActionMs,
-    summary.lastActionMs,
-    JSON.stringify(trimmed),
-    videoAspect ?? null,
-  );
+      id,
+      summary.exerciseId,
+      exerciseName,
+      createdAt,
+      summary.durationMs,
+      summary.reps,
+      summary.holdSeconds,
+      summary.avgBottomAngle,
+      JSON.stringify(summary.cues),
+      videoUri,
+      score,
+      summary.firstActionMs,
+      summary.lastActionMs,
+      JSON.stringify(trimmed),
+      videoAspect ?? null,
+    );
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 type Row = Omit<SessionRecord, 'cues' | 'timeline'> & { cues: string; timeline: string | null };
