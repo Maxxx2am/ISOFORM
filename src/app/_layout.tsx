@@ -8,10 +8,10 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { FatalErrorScreen } from '@/components/FatalErrorScreen';
 import { OnboardingFlow } from '@/components/OnboardingFlow';
-import { useExerciseRegistry } from '@/exercises/registry';
+import { startAutoRefresh } from '@/exercises/registry';
 import { installGlobalErrorHandler, onFatalError } from '@/lib/globalErrorHandler';
-import { pullFromCloud } from '@/lib/icloudSync';
 import { preloadAppImages } from '@/lib/preloadAssets';
+import { getSessions } from '@/lib/sessionCache';
 import { useOnboarding } from '@/store/onboarding';
 import { useTheme } from '@/theme/useTheme';
 
@@ -43,6 +43,7 @@ export default function RootLayout() {
   // the first screen.
   useEffect(() => {
     preloadAppImages();
+    getSessions();
   }, []);
 
   // Check for remote exercise content (GitHub-hosted overrides/additions/
@@ -51,14 +52,7 @@ export default function RootLayout() {
   // failure (offline, unreachable, placeholder URL never filled in) just
   // leaves the app on whatever it already had — see registry.ts.
   useEffect(() => {
-    useExerciseRegistry.getState().refresh();
-  }, []);
-
-  // Same fire-and-forget slot for iCloud backup — pullFromCloud() itself
-  // no-ops if the setting is off or the native module isn't available yet
-  // (e.g. still running in Expo Go), so this is always safe to call.
-  useEffect(() => {
-    pullFromCloud();
+    startAutoRefresh();
   }, []);
 
   if (fatal) return <FatalErrorScreen error={fatal} />;

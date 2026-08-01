@@ -24,6 +24,7 @@ type AnalyzeVideoViewProps = {
   hideLegs?: boolean;
   sideView?: boolean;
   showBar?: boolean;
+  mirror?: boolean;
 };
 
 type Msg =
@@ -48,7 +49,7 @@ export const MAX_VIDEO_BYTES = 60 * 1024 * 1024;
  * skeleton + rep/hold tracking exactly like a live set. See analyzeHtml.ts.
  */
 export const AnalyzeVideoView = forwardRef<AnalyzeVideoHandle, AnalyzeVideoViewProps>(
-  ({ onFrame, onStatus, onReady, onError, onProgress, onDims, onDone, hideLegs = false, sideView = false, showBar = false }, ref) => {
+  ({ onFrame, onStatus, onReady, onError, onProgress, onDims, onDone, hideLegs = false, sideView = false, showBar = false, mirror = false }, ref) => {
     const webRef = useRef<WebView>(null);
 
     useImperativeHandle(ref, () => ({
@@ -111,7 +112,7 @@ export const AnalyzeVideoView = forwardRef<AnalyzeVideoHandle, AnalyzeVideoViewP
         ref={webRef}
         style={styles.web}
         source={{ html: ANALYZE_HTML, baseUrl: 'https://localhost' }}
-        injectedJavaScriptBeforeContentLoaded={`window.__hideLegs=${hideLegs ? 'true' : 'false'};window.__sideView=${sideView ? 'true' : 'false'};window.__showBar=${showBar ? 'true' : 'false'};true;`}
+        injectedJavaScriptBeforeContentLoaded={`window.__hideLegs=${hideLegs ? 'true' : 'false'};window.__sideView=${sideView ? 'true' : 'false'};window.__showBar=${showBar ? 'true' : 'false'};window.__mirror=${mirror ? 'true' : 'false'};true;`}
         originWhitelist={['*']}
         javaScriptEnabled
         domStorageEnabled

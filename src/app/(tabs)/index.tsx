@@ -20,7 +20,7 @@ import type { Exercise } from '@/exercises/types';
 import { formatClock, formatRelativeDay } from '@/lib/format';
 import { computeStreakDays } from '@/lib/insights';
 import { computeRanks, rankColor } from '@/lib/rank';
-import { listSessions, type SessionRecord } from '@/storage/db';
+import { getSessions, type SessionRecord } from '@/lib/sessionCache';
 import { useChallengeStore } from '@/store/challenge';
 import { useProfile } from '@/store/profile';
 import { useProgram } from '@/store/program';
@@ -59,7 +59,7 @@ export default function TrainScreen() {
   useFocusEffect(
     useCallback(() => {
       let alive = true;
-      listSessions()
+      getSessions()
         .then((rows) => alive && setSessions(rows))
         .catch(() => alive && setSessions([]));
       return () => { alive = false; };
@@ -114,6 +114,19 @@ export default function TrainScreen() {
 
       <ChallengeCardCmp />
       <ProgramBannerCmp />
+
+      <Pressable
+        onPress={() => setAddOpen(true)}
+        style={({ pressed }) => [
+          styles.quickStart,
+          { backgroundColor: t.surface.raised, borderColor: t.ink.hairline },
+          pressed && { opacity: 0.7 },
+        ]}
+      >
+        <Ionicons name="camera-outline" size={18} color={t.ink.secondary} />
+        <Text variant="body" tone="secondary">Quick workout</Text>
+        <Ionicons name="chevron-forward" size={14} color={t.ink.muted} />
+      </Pressable>
 
       {/* Only ever the exercise closest to leveling up — no "you haven't
           trained X in a while" nudge. That kind of suggestion reads as
@@ -302,13 +315,19 @@ function ChallengeCardCmp() {
   const [sessions, setSessions] = useState<SessionRecord[] | null>(null);
 
   useEffect(() => {
-    listSessions()
+    getSessions()
       .then((rows) => setSessions(rows))
       .catch(() => setSessions([]));
   }, []);
 
   const challenge = useMemo(
-    () => sessions ? getDailyChallenge(new Date(), sessions, hasAllAccess) : null,
+    () => {
+      try {
+        return sessions ? getDailyChallenge(new Date(), sessions, hasAllAccess) : null;
+      } catch {
+        return null;
+      }
+    },
     [sessions, hasAllAccess],
   );
 
@@ -366,10 +385,6 @@ function ChallengeCardCmp() {
           Target: {challenge.target} {challenge.targetLabel}
         </Text>
       ) : null}
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, marginTop: Spacing.sm }}>
-        <Ionicons name="play-circle" size={18} color={t.accent.color} />
-        <Text variant="body" style={{ color: t.accent.color }}>Start challenge</Text>
-      </View>
     </Pressable>
   );
 }
@@ -459,6 +474,11 @@ const styles = StyleSheet.create({
     padding: Spacing.lg,
     borderRadius: Radius.md,
     borderWidth: 1,
+  },
+  quickStart: {
+    flexDirection: 'row', alignItems: 'center', gap: Spacing.sm,
+    marginTop: Spacing.sm, paddingVertical: Spacing.sm, paddingHorizontal: Spacing.md,
+    borderRadius: Radius.pill, borderWidth: 1,
   },
   empty: {
     marginTop: Spacing.lg,

@@ -14,7 +14,7 @@ import { buildDebugInfo, deleteAllData, exportDataAsJson, resetSettingsAndProfil
 import { cmToFeetInches, feetInchesToCm, kgToLb, lbToKg, useProfile } from '@/store/profile';
 import { useSettings, type CameraFacing } from '@/store/settings';
 import { useSubscription } from '@/store/subscription';
-import { Accents, Feedback, Radius, Spacing, type AccentId } from '@/theme/palette';
+import { Feedback, Radius, Spacing } from '@/theme/palette';
 import { useTheme } from '@/theme/useTheme';
 
 export default function SettingsScreen() {
@@ -114,46 +114,6 @@ export default function SettingsScreen() {
     <Screen scroll>
       <View style={{ paddingTop: Spacing.md }}>
         <Text variant="title">Settings</Text>
-      </View>
-
-      {/* Accent picker — single row of 7 circles */}
-      <View style={{ marginTop: Spacing.lg }}>
-        <SectionLabel>Accent</SectionLabel>
-        <View style={[styles.accentRow, { backgroundColor: t.surface.raised, borderColor: t.ink.hairline }]}>
-          {(Object.keys(Accents) as AccentId[]).map((id) => {
-            const selected = id === s.accent;
-            const color = Accents[id].color;
-            const onColor = Accents[id].onColor;
-            const label = Accents[id].label;
-            return (
-              <Pressable
-                key={id}
-                onPress={() => s.setAccent(id)}
-                style={styles.accentCol}
-              >
-                <View
-                  style={[
-                    styles.accentDot,
-                    {
-                      backgroundColor: color,
-                      borderColor: selected ? t.ink.primary : 'transparent',
-                      borderWidth: selected ? 2.5 : 0,
-                    },
-                  ]}
-                >
-                  {selected ? <Ionicons name="checkmark" size={12} color={onColor} /> : null}
-                </View>
-                <Text
-                  variant="label"
-                  tone={selected ? 'primary' : 'muted'}
-                  style={styles.accentLabel}
-                >
-                  {label}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
       </View>
 
       <View style={{ marginTop: Spacing.lg }}>
@@ -534,24 +494,6 @@ const styles = StyleSheet.create({
   },
   bodyRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md },
   bodyLabel: { width: 60 },
-  accentRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    alignItems: 'center',
-    paddingVertical: Spacing.md,
-    paddingHorizontal: Spacing.sm,
-    borderRadius: Radius.md,
-    borderWidth: 1,
-  },
-  accentCol: { alignItems: 'center', gap: 6 },
-  accentDot: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  accentLabel: { fontSize: 9, letterSpacing: 0.5 },
   segment: { flexDirection: 'row', borderRadius: Radius.pill, padding: 2, gap: 2 },
   segItem: { paddingHorizontal: 12, paddingVertical: 5, borderRadius: Radius.pill },
   footer: { textAlign: 'center', marginTop: Spacing.xl },

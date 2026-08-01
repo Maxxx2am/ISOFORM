@@ -311,14 +311,36 @@ function wristsKneesOffFloor(lms: Landmark[]): boolean {
   return true;
 }
 
-/** Planche gate: hands on floor + body roughly horizontal + knees/feet off the floor. */
+/**
+ * Planche gate: hands on floor + body roughly horizontal + knees/feet off
+ * the floor + shoulders genuinely leaned forward past the hands.
+ *
+ * BUG FIX: mid-transition (kicking up into a handstand and lowering the legs
+ * back down toward planche, or bailing out of a handstand the same way), the
+ * body passes through a moment where the feet have dropped just enough that
+ * `isInverted` flips false, while `isHorizontal`'s margin (0.18) is loose
+ * enough to already read as "roughly level" even though the athlete is
+ * still basically vertical over their hands, not leaned into a planche.
+ * That combination let a still-vertical handstand-with-legs-coming-down get
+ * validated as "in planche" and start crediting hold time — reported as
+ * "counts it at the top" (i.e. while still up near handstand, not down in
+ * the flat planche shape).
+ *
+ * The one signal that ACTUALLY distinguishes a planche from a vertical
+ * handstand is the forward shoulder lean past the hands — a real planche is
+ * physically impossible without it, while a handstand keeps the shoulders
+ * stacked directly over the wrists. Require it here, not just as an
+ * info-level coaching cue.
+ */
 function isInPlanche(lms: Landmark[]): boolean {
   if (isInverted(lms)) return false;
   if (!handsOnFloor(lms) || !isHorizontal(lms)) return false;
   const knee = pairYGate(lms, L.LeftKnee, L.RightKnee, 'min');
   const wrist = pairYGate(lms, L.LeftWrist, L.RightWrist, 'min');
   if (knee == null || wrist == null) return false;
-  return knee < wrist - 0.02;
+  if (knee >= wrist - 0.02) return false;
+  const lean = stackOffset(lms, L.LeftWrist, L.RightWrist);
+  return lean != null && lean > 0.15;
 }
 
 function isFullPlanche(lms: Landmark[]): boolean {
@@ -1046,7 +1068,11 @@ export const EXERCISES: Exercise[] = [
     // slight form breaks shouldn't kill the hold clock. Only feet-on-floor
     // (fails the gate) or severe knee bend / tuck planche (drops bodyLine
     // below 40) stops the count. Form rules still flag quality separately.
-    hold: { angle: 'bodyLine', minOk: 130, maxOk: 180 }, targetAngle: 178,
+    // FIXED: this was left at 130, which contradicted the comment above it —
+    // any real arch drops bodyLine well below 130° and was silently cutting
+    // the hold clock exactly like a fall, even while the athlete was still
+    // solidly inverted on their hands. Restored to 40 to match intent.
+    hold: { angle: 'bodyLine', minOk: 40, maxOk: 180 }, targetAngle: 178,
     gauge: { angle: 'bodyLine', label: 'Straightness', downBelow: 130, upAbove: 180, target: 178 },
     formRules: [
       // Live-only nudge; it never affects the score (holds score on straightness).
@@ -1064,7 +1090,16 @@ export const EXERCISES: Exercise[] = [
       }},
       { id: 'bent-arms', bodyPart: 'arm', cue: 'Push your arms straight', say: 'Lock your arms — a soft elbow makes balance much harder.', severity: 'warn', test: ({ angles }) => angles.elbow != null && angles.elbow < 160 },
       { id: 'not-stacked', bodyPart: 'torso', cue: 'Stack your hips over your shoulders', say: 'Your hips aren\'t stacked over your shoulders — that\'s the base of the whole balance.', severity: 'warn', test: ({ angles }) => angles.lean != null && angles.lean > 15 },
-      { id: 'not-balanced', bodyPart: 'arm', cue: 'Stack your shoulders over your wrists', say: 'Your shoulders have drifted away from over your wrists — that\'s what\'s pulling you off balance.', severity: 'warn', test: ({ landmarks }) => { const o = stackOffset(landmarks, L.LeftShoulder, L.RightShoulder); return o != null && o > 0.4; } },
+      // FIXED: was called as stackOffset(landmarks, L.LeftShoulder,
+      // L.RightShoulder) — `stackOffset(lms, joint, _)` measures how far
+      // `joint` sits from being stacked under the SHOULDER, so passing the
+      // shoulder itself as `joint` measured the shoulder's offset from
+      // itself: always 0. `o > 0.4` was then always false and this cue
+      // never fired, no matter how far the shoulders drifted from the
+      // wrists. Now measures the WRIST's offset from the shoulder — the
+      // same "shoulders over wrists" relationship, computed correctly.
+      // Same bug fixed at the three 'lean-more' planche rules below.
+      { id: 'not-balanced', bodyPart: 'arm', cue: 'Stack your shoulders over your wrists', say: 'Your shoulders have drifted away from over your wrists — that\'s what\'s pulling you off balance.', severity: 'warn', test: ({ landmarks }) => { const o = stackOffset(landmarks, L.LeftWrist, L.RightWrist); return o != null && o > 0.4; } },
       { id: 'legs-apart', bodyPart: 'leg', cue: 'Squeeze your legs together', say: 'Point your toes and squeeze your legs together for a tighter line.', severity: 'info', test: ({ landmarks }) => {
           const scale = torsoScale(landmarks);
           const la = landmarks[L.LeftAnkle]; const ra = landmarks[L.RightAnkle];
@@ -1136,7 +1171,7 @@ export const EXERCISES: Exercise[] = [
       // physically impossible without leaning forward at all, so a SMALL
       // shoulder-to-wrist offset means under-leaning (not yet forward enough
       // for this progression), not good "stacking".
-      { id: 'lean-more', bodyPart: 'arm', cue: 'Lean your shoulders past your hands', say: 'Lean your shoulders further forward, well past your hands.', severity: 'info', test: ({ landmarks }) => { const o = stackOffset(landmarks, L.LeftShoulder, L.RightShoulder); return o != null && o < 0.3; } },
+      { id: 'lean-more', bodyPart: 'arm', cue: 'Lean your shoulders past your hands', say: 'Lean your shoulders further forward, well past your hands.', severity: 'info', test: ({ landmarks }) => { const o = stackOffset(landmarks, L.LeftWrist, L.RightWrist); return o != null && o < 0.3; } },
       { id: 'gaze', bodyPart: 'torso', cue: 'Keep your gaze forward', say: 'Keep your neck neutral, gaze slightly forward of your hands.', severity: 'info', test: ({ landmarks }) => {
           const nose = landmarks[L.Nose]; const lw = landmarks[L.LeftWrist]; const rw = landmarks[L.RightWrist];
           if (!nose || !lw || !rw || nose.visibility < 0.5 || lw.visibility < 0.5 || rw.visibility < 0.5) return false;
@@ -1199,7 +1234,7 @@ export const EXERCISES: Exercise[] = [
           if (scale == null || scale < 1e-4 || !lk || !rk || lk.visibility < 0.5 || rk.visibility < 0.5) return false;
           return Math.abs(lk.x - rk.x) / scale > 0.3;
       }},
-      { id: 'lean-more', bodyPart: 'arm', cue: 'Lean your shoulders past your hands', say: 'Lean your shoulders further forward, well past your hands.', severity: 'info', test: ({ landmarks }) => { const o = stackOffset(landmarks, L.LeftShoulder, L.RightShoulder); return o != null && o < 0.3; } },
+      { id: 'lean-more', bodyPart: 'arm', cue: 'Lean your shoulders past your hands', say: 'Lean your shoulders further forward, well past your hands.', severity: 'info', test: ({ landmarks }) => { const o = stackOffset(landmarks, L.LeftWrist, L.RightWrist); return o != null && o < 0.3; } },
     ],
   }),
   def({
@@ -1271,7 +1306,7 @@ export const EXERCISES: Exercise[] = [
           if (scale == null || scale < 1e-4 || !la || !ra || la.visibility < 0.5 || ra.visibility < 0.5) return false;
           return Math.abs(la.x - ra.x) / scale > 0.3;
       }},
-      { id: 'lean-more', bodyPart: 'arm', cue: 'Lean your shoulders past your hands', say: 'Lean your shoulders further forward, well past your hands.', severity: 'info', test: ({ landmarks }) => { const o = stackOffset(landmarks, L.LeftShoulder, L.RightShoulder); return o != null && o < 0.3; } },
+      { id: 'lean-more', bodyPart: 'arm', cue: 'Lean your shoulders past your hands', say: 'Lean your shoulders further forward, well past your hands.', severity: 'info', test: ({ landmarks }) => { const o = stackOffset(landmarks, L.LeftWrist, L.RightWrist); return o != null && o < 0.3; } },
     ],
   }),
   // ───────── Front Lever path (side view, holds, bar) ─────────

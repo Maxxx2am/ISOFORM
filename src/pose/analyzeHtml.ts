@@ -35,6 +35,7 @@ export const ANALYZE_HTML = `<!DOCTYPE html>
   var HIDE_LEGS = !!window.__hideLegs;
   var SIDE_VIEW = !!window.__sideView;
   var SHOW_BAR = !!window.__showBar;
+  var MIRROR = !!window.__mirror;
   var SIDE_LEFT  = { chain: [[0,11],[11,13],[13,15],[11,23],[23,25],[25,27],[27,31]], joints: [0,11,13,15,23,25,27], core: [11,13,15,23,25,27] };
   var SIDE_RIGHT = { chain: [[0,12],[12,14],[14,16],[12,24],[24,26],[26,28],[28,32]], joints: [0,12,14,16,24,26,28], core: [12,14,16,24,26,28] };
   function pickSide(lms){
@@ -57,6 +58,8 @@ export const ANALYZE_HTML = `<!DOCTYPE html>
   function draw(lms, connections){
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.strokeStyle = '#FFFFFF'; ctx.lineWidth = 4; ctx.lineCap = 'round';
+    var mx = MIRROR ? function(x){ return (1 - x) * canvas.width; } : function(x){ return x * canvas.width; };
+    var my = function(y){ return y * canvas.height; };
     if (SHOW_BAR){
       var lw = lms[15], rw = lms[16], ys = [];
       if (lw && (lw.visibility==null || lw.visibility>=0.4)) ys.push(lw.y);
@@ -76,21 +79,21 @@ export const ANALYZE_HTML = `<!DOCTYPE html>
       if (!a || !b) continue;
       if ((a.visibility!=null && a.visibility<0.4) || (b.visibility!=null && b.visibility<0.4)) continue;
       ctx.beginPath();
-      ctx.moveTo(a.x*canvas.width, a.y*canvas.height);
-      ctx.lineTo(b.x*canvas.width, b.y*canvas.height);
+      ctx.moveTo(mx(a.x), my(a.y));
+      ctx.lineTo(mx(b.x), my(b.y));
       ctx.stroke();
     }
     ctx.fillStyle = '#FFFFFF';
     var list = joints || null;
     if (list){
-      for (var k=0;k<list.length;k++){ var pj=lms[list[k]]; if (!pj || (pj.visibility!=null && pj.visibility<0.4)) continue; ctx.beginPath(); ctx.arc(pj.x*canvas.width, pj.y*canvas.height, 4, 0, 6.2832); ctx.fill(); }
+      for (var k=0;k<list.length;k++){ var pj=lms[list[k]]; if (!pj || (pj.visibility!=null && pj.visibility<0.4)) continue; ctx.beginPath(); ctx.arc(mx(pj.x), my(pj.y), 4, 0, 6.2832); ctx.fill(); }
     } else {
       for (var j=0;j<lms.length;j++){
         if (HIDE_LEGS && LEG[j]) continue;
         var p = lms[j];
         if (p.visibility!=null && p.visibility<0.4) continue;
         ctx.beginPath();
-        ctx.arc(p.x*canvas.width, p.y*canvas.height, 4, 0, 6.2832);
+        ctx.arc(mx(p.x), my(p.y), 4, 0, 6.2832);
         ctx.fill();
       }
     }

@@ -1,9 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import * as ImagePicker from 'expo-image-picker';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { Alert, Pressable, StyleSheet, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 import Svg, { Circle, Defs, RadialGradient, Stop } from 'react-native-svg';
 
 import { BackButton } from '@/components/BackButton';
@@ -88,26 +87,6 @@ export default function ExerciseDetailScreen() {
     });
   };
 
-  const importFromVideo = async () => {
-    const perm = await ImagePicker.getMediaLibraryPermissionsAsync();
-    if (!perm.granted) {
-      const req = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (!req.granted) {
-        Alert.alert('Permission needed', 'Allow access to your photo library to import videos.');
-        return;
-      }
-    }
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['videos'],
-      quality: 1,
-    });
-    if (result.canceled || !result.assets?.[0]) return;
-    router.push({
-      pathname: '/workout/import',
-      params: { slug: exercise.slug, videoUri: result.assets[0].uri },
-    });
-  };
-
   return (
     <Screen scroll>
       <Stack.Screen options={{ headerShown: false }} />
@@ -180,13 +159,6 @@ export default function ExerciseDetailScreen() {
               <Ionicons name="chevron-forward" size={14} color={t.ink.muted} />
             )}
           </Pressable>
-          <PrimaryButton
-            label="Import from video"
-            variant="ghost"
-            icon={<Ionicons name="cloud-upload-outline" size={20} color={t.ink.secondary} />}
-            style={{ marginTop: Spacing.sm }}
-            onPress={importFromVideo}
-          />
         </>
       ) : (
         <View style={[styles.hint, { borderColor: t.ink.hairline }]}>

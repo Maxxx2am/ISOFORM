@@ -9,8 +9,7 @@ import { PrimaryButton } from '@/components/PrimaryButton';
 import { Screen } from '@/components/Screen';
 import { Text } from '@/components/Text';
 import { makeId } from '@/lib/format';
-import { schedulePushToCloud } from '@/lib/icloudSync';
-import { uploadSessionTelemetry } from '@/lib/telemetry';
+
 import { useWorkoutRunStore } from '@/store/workoutRun';
 import { useWorkouts } from '@/store/workouts';
 import { saveSession } from '@/storage/db';
@@ -67,9 +66,7 @@ export default function WorkoutSummaryScreen() {
         if (savedStepIdsRef.current.has(step.id)) continue;
         await saveSession(step.id, step.exerciseName, step.createdAt, step.summary, step.videoUri, step.timeline, step.videoAspect);
         savedStepIdsRef.current.add(step.id);
-        uploadSessionTelemetry(step.id, step.exerciseName, step.createdAt, step.summary, step.videoUri, step.timeline);
       }
-      schedulePushToCloud();
       setSaved(true);
     } catch {
       Alert.alert("Couldn't save", 'Something went wrong saving this workout. Try again.');

@@ -18,7 +18,7 @@ import { Text } from '@/components/Text';
 import { useExerciseRegistry } from '@/exercises/registry';
 import { buildDebugInfo, deleteAllData, exportDataAsJson, importDataFromJson, resetSettingsAndProfile, seedDemoSessions, triggerTestCrash } from '@/lib/devTools';
 import { formatRelativeDay } from '@/lib/format';
-import { isICloudAvailable, pullFromCloud, pushToCloud, useSyncStatus } from '@/lib/icloudSync';
+
 import { useOnboarding } from '@/store/onboarding';
 import { useProfile } from '@/store/profile';
 import { useSettings, type CameraFacing } from '@/store/settings';
@@ -32,7 +32,6 @@ export default function SettingsScreen() {
   const sub = useSubscription();
   const profile = useProfile();
   const [busy, setBusy] = useState<string | null>(null);
-  const syncStatus = useSyncStatus();
 
   // Deep link from the "complete your profile" nudge on the Profile tab
   // (and from onboarding's skip path) — /settings?section=bodyStats lands
@@ -46,21 +45,6 @@ export default function SettingsScreen() {
       scrollRef.current?.scrollTo({ y: Math.max(0, bodyStatsY - Spacing.md), animated: true });
     }
   }, [section, bodyStatsY]);
-
-  const onToggleICloudSync = (on: boolean) => {
-    if (on && !isICloudAvailable()) {
-      Alert.alert(
-        'iCloud not available',
-        'Make sure you’re signed into iCloud on this device (Settings → [your name] → iCloud) and try again.',
-      );
-      return;
-    }
-    s.setICloudSyncEnabled(on);
-    if (on) {
-      pullFromCloud();
-      pushToCloud();
-    }
-  };
 
   const onExport = async () => {
     setBusy('export');
@@ -304,63 +288,11 @@ export default function SettingsScreen() {
             right={<Ionicons name="download-outline" size={18} color={t.ink.muted} />}
           />
           <ListRow
-            title="iCloud sync"
-            subtitle={
-              !s.iCloudSyncEnabled
-                ? 'Back up settings + recent history to this Apple ID — not your recorded videos'
-                : syncStatus.syncing
-                  ? 'Syncing…'
-                  : syncStatus.lastSyncedAt
-                    ? `Synced ${formatRelativeDay(syncStatus.lastSyncedAt)}`
-                    : 'On — waiting for the first sync'
-            }
-            right={
-              <Switch
-                value={s.iCloudSyncEnabled}
-                onValueChange={onToggleICloudSync}
-                trackColor={{ true: Feedback.good, false: t.surface.pressed }}
-                thumbColor="#FFFFFF"
-              />
-            }
-          />
-          <ListRow
             title="Delete all data"
             subtitle="Permanently erase every logged workout"
             onPress={busy ? undefined : onDeleteAll}
             right={busy === 'delete' ? <Text variant="caption" tone="muted">Working…</Text> : <Ionicons name="trash-outline" size={18} color={Feedback.bad} />}
           />
-        </ListGroup>
-      </View>
-
-      <View style={{ marginTop: Spacing.lg }}>
-        <SectionLabel>Beta feedback</SectionLabel>
-        <ListGroup>
-          <ListRow
-            title="Help improve ISOFORM"
-            subtitle="Sends each session's rep-counting data (angles, score, cues — no images) to the developer to find and fix real bugs"
-            right={
-              <Switch
-                value={s.telemetryOptIn}
-                onValueChange={s.setTelemetryOptIn}
-                trackColor={{ true: Feedback.good, false: t.surface.pressed }}
-                thumbColor="#FFFFFF"
-              />
-            }
-          />
-          {s.telemetryOptIn ? (
-            <ListRow
-              title="Also include video"
-              subtitle="Uploads the recorded clip too, not just the numbers — more useful for spotting real issues, but includes video of you"
-              right={
-                <Switch
-                  value={s.telemetryIncludeVideo}
-                  onValueChange={s.setTelemetryIncludeVideo}
-                  trackColor={{ true: Feedback.good, false: t.surface.pressed }}
-                  thumbColor="#FFFFFF"
-                />
-              }
-            />
-          ) : null}
         </ListGroup>
       </View>
 

@@ -114,6 +114,7 @@ export default function AnalyzeVideoScreen() {
           hideLegs={exercise.hideLegs}
           sideView={exercise.view === 'side'}
           showBar={exercise.showBar}
+          mirror={false}
         />
       </View>
 

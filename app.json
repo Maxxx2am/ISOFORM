@@ -12,7 +12,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.maxxxdev.isoform",
-      "buildNumber": "26",
+      "buildNumber": "28",
       "infoPlist": {
         "UIViewControllerBasedStatusBarAppearance": false,
         "NSCameraUsageDescription": "ISOFORM uses the camera to track your body and check your exercise form on-device. Nothing leaves your phone.",
@@ -48,28 +48,11 @@
       "expo-audio",
       "expo-asset",
       [
-        "react-native-vision-camera",
-        {
-          "cameraPermissionText": "ISOFORM uses the camera to track your body and check your exercise form on-device. Nothing leaves your phone.",
-          "enableMicrophonePermission": true,
-          "microphonePermissionText": "ISOFORM records your set so you can replay it with form feedback. Audio stays on your phone."
-        }
-      ],
-      [
         "expo-build-properties",
         {
           "ios": {
             "useFrameworks": "static"
           }
-        }
-      ],
-      [
-        "react-native-mediapipe-posedetection",
-        {
-          "assetsPaths": [
-            "./assets/models/"
-          ],
-          "ignoredPattern": "\\.(md|tflite)$"
         }
       ]
     ],

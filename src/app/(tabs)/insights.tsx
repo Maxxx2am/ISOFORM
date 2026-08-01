@@ -18,7 +18,7 @@ import { MUSCLE_LABEL } from '@/lib/muscleLabels';
 import { computeRanks, RANK_ICON_ASPECT, RANK_ICONS, rankColor, tierRequirements } from '@/lib/rank';
 import { getExercise, getPrevProgression } from '@/exercises/data';
 import type { Exercise } from '@/exercises/types';
-import { listSessions, type SessionRecord } from '@/storage/db';
+import { getSessions, type SessionRecord } from '@/lib/sessionCache';
 import { useProfile } from '@/store/profile';
 import { Feedback, formQualityColor, Radius, Spacing } from '@/theme/palette';
 import { useTheme } from '@/theme/useTheme';
@@ -50,7 +50,7 @@ export default function InsightsScreen() {
   useFocusEffect(
     useCallback(() => {
       let alive = true;
-      listSessions()
+      getSessions()
         .then((rows) => alive && setSessions(rows))
         .catch(() => alive && setSessions([]));
       return () => { alive = false; };

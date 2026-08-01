@@ -2,10 +2,9 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { router } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { ActivityIndicator, Linking, Pressable, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
 
-import { CameraStage, type CameraStageHandle } from '@/camera/CameraStage';
-import type { CameraPoseStatus } from '@/camera/useCameraPose';
+
 import { CircularTimer } from '@/components/CircularTimer';
 import { QualityGauge } from '@/components/QualityGauge';
 import { RepGauge } from '@/components/RepGauge';
@@ -168,17 +167,6 @@ export function ExerciseTracker({
   const [facingMismatch, setFacingMismatch] = useState(false);
   const [countdown, setCountdown] = useState<number | null>(null);
   const [outOfFrame, setOutOfFrame] = useState(false);
-  /** Controls the VisionCamera capture session's lifecycle independently from
-   *  `active` (which only throttles JS-side pose processing). When the user
-   *  presses Stop, `active` drops first (ignoring new pose results), then
-   *  after recording finalizes, this drops too — stopping the native camera,
-   *  frame processor, and GPU inference so MediaPipe's background threads
-   *  drain before the component unmounts on navigation. Without this ordered
-   *  shutdown, tearing down the capture session during unmount races with
-   *  in-flight inference (SIGSEGV crash in MediaPipe worker background thread). */
-  const [cameraIsActive, setCameraIsActive] = useState(true);
-  const [cameraStatus, setCameraStatus] = useState<CameraPoseStatus>('requesting-permission');
-  const cameraStageRef = useRef<CameraStageHandle>(null);
   /** Which of this goal's checkpoints have been passed, in the order they
    * were hit (each announced once, tracking never stops). */
   const [hitCheckpoints, setHitCheckpoints] = useState<number[]>([]);
@@ -386,12 +374,6 @@ export function ExerciseTracker({
     [engine, exercise, goal, repHaptics, hapticCues, repDing, voiceCoach, workoutAlertStyle],
   );
 
-  // Start recording the instant tracking begins (right after the countdown),
-  // so the saved clip lines up with the timeline the engine is building.
-  useEffect(() => {
-    if (phase === 'tracking') cameraStageRef.current?.startRecording();
-  }, [phase]);
-
   // Full-body gate → facing check → 3-2-1 countdown → tracking.
   useEffect(() => {
     if (phase !== 'setup') return;
@@ -422,32 +404,15 @@ export function ExerciseTracker({
     finalizedRef.current = true;
     try {
       const summary = engine.summarize(lastFrameTRef.current);
-      const recording = await cameraStageRef.current?.stopRecording().catch(() => null);
-      // Stop the native camera capture session so the frame processor +
-      // GPU inference pipeline drains before the component unmounts on
-      // navigation. `active` already told the JS side to ignore new pose
-      // results (phase='processing'); this tells the NATIVE side to stop.
-      // Without this ordered shutdown, VisionCamera tears the capture session
-      // out from under in-flight MediaPipe inference the instant the
-      // component unmounts — a null-pointer SIGSEGV on a background thread
-      // accessing already-freed native resources.
-      setCameraIsActive(false);
-      // Let any queued native GPU inference finish (one inference cycle at
-      // 15fps ≈ 67ms, plus dispatch overhead — 500ms is a generous margin
-      // for the native pipeline to drain before we rm -rf its home directory).
-      await new Promise((r) => setTimeout(r, 500));
       onPrimaryAction({
         summary,
         timeline: engine.getTimeline(),
-        videoUri: recording?.uri ?? null,
-        videoAspect: frameAspectRef.current ?? recording?.aspect,
+        videoUri: null,
+        videoAspect: frameAspectRef.current ?? undefined,
       });
     } catch (err) {
       console.error('[ExerciseTracker] finishSet failed:', err);
       finalizedRef.current = false;
-      setCameraIsActive(true);
-      // Don't navigate away — re-enable tracking so the athlete can try
-      // finishing again instead of losing the set entirely.
       setPhase('tracking');
     }
   }, [engine, onPrimaryAction]);
@@ -477,19 +442,6 @@ export function ExerciseTracker({
         style={styles.stage}
         onLayout={(e) => setStageSize({ w: e.nativeEvent.layout.width, h: e.nativeEvent.layout.height })}
       >
-        {/* Stays mounted through 'processing' too — unmounting it the instant
-            the Stop button is pressed would tear down the native camera view
-            while stopRecording() is still finalizing the clip. `active`
-            (not conditional rendering) is what stops the pose pipeline. */}
-        <CameraStage
-          ref={cameraStageRef}
-          active={phase !== 'processing'}
-          cameraIsActive={cameraIsActive}
-          facing={cameraFacing}
-          mirror={mirrorFrontCamera && cameraFacing === 'front'}
-          onFrame={onFrame}
-          onStatusChange={setCameraStatus}
-        />
         {phase === 'tracking' && liveLandmarks && stageSize.w > 0 ? (
           <View style={styles.skeletonOverlay} pointerEvents="none">
             <SkeletonOverlay
@@ -520,16 +472,8 @@ export function ExerciseTracker({
         ) : null}
       </View>
 
-      {/* Camera not ready yet — explicit, actionable state instead of a
-          silent black screen while permission/model/device resolve. */}
-      {phase === 'setup' && cameraStatus !== 'ready' ? (
-        <View style={styles.center} pointerEvents="box-none">
-          <CameraStatusMessage status={cameraStatus} tone={t.ink.secondary} />
-        </View>
-      ) : null}
-
       {/* Full-body gate / facing check / countdown */}
-      {phase === 'setup' && cameraStatus === 'ready' ? (
+      {phase === 'setup' ? (
         <View style={styles.center} pointerEvents="none">
           {countdown != null ? (
             <Text style={styles.count}>{countdown}</Text>
@@ -711,73 +655,6 @@ export function ExerciseTracker({
   );
 }
 
-/** Explicit, actionable messaging for every non-ready camera state — the
- * whole point is that "camera doesn't work" is never a silent black rectangle. */
-function CameraStatusMessage({ status, tone }: { status: CameraPoseStatus; tone: string }) {
-  switch (status) {
-    case 'requesting-permission':
-      return (
-        <View style={styles.gate}>
-          <ActivityIndicator color={tone} />
-          <Text tone="secondary" style={{ marginTop: Spacing.sm }}>
-            Requesting camera access…
-          </Text>
-        </View>
-      );
-    case 'no-permission':
-      return (
-        <View style={styles.gate}>
-          <Ionicons name="videocam-off-outline" size={40} color={tone} />
-          <Text variant="heading" style={{ textAlign: 'center' }}>
-            Camera access needed
-          </Text>
-          <Text tone="secondary" style={{ textAlign: 'center' }}>
-            ISOFORM tracks your form on-device — enable Camera in Settings to start.
-          </Text>
-          <Pressable onPress={() => Linking.openSettings()} style={{ marginTop: Spacing.sm }}>
-            <Text variant="heading" tone="accent">
-              Open Settings
-            </Text>
-          </Pressable>
-        </View>
-      );
-    case 'no-device':
-      return (
-        <View style={styles.gate}>
-          <Ionicons name="camera-outline" size={40} color={tone} />
-          <Text variant="heading" style={{ textAlign: 'center' }}>
-            No camera found
-          </Text>
-          <Text tone="secondary" style={{ textAlign: 'center' }}>
-            This device doesn&apos;t have a usable camera for tracking.
-          </Text>
-        </View>
-      );
-    case 'loading-model':
-      return (
-        <View style={styles.gate}>
-          <ActivityIndicator color={tone} />
-          <Text tone="secondary" style={{ marginTop: Spacing.sm }}>
-            Loading pose model…
-          </Text>
-        </View>
-      );
-    case 'model-error':
-      return (
-        <View style={styles.gate}>
-          <Ionicons name="warning-outline" size={40} color={tone} />
-          <Text variant="heading" style={{ textAlign: 'center' }}>
-            Pose model failed to load
-          </Text>
-          <Text tone="secondary" style={{ textAlign: 'center' }}>
-            assets/models/pose_landmarker_lite.task is missing or invalid.
-          </Text>
-        </View>
-      );
-    default:
-      return null;
-  }
-}
 
 function FormBadge({ quality }: { quality: number }) {
   const color = formQualityColor(quality);

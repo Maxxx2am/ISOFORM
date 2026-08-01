@@ -18,8 +18,7 @@ import { scoreSession, type SessionSummary, type TimelineSample } from '@/engine
 import { getExercise, getNextProgression, getPrevProgression } from '@/exercises/data';
 import { coachNotes } from '@/lib/coach';
 import { formatClock } from '@/lib/format';
-import { schedulePushToCloud } from '@/lib/icloudSync';
-import { uploadSessionTelemetry } from '@/lib/telemetry';
+
 import { SkeletonOverlay } from '@/pose/SkeletonOverlay';
 import { useSessionStore } from '@/store/session';
 import { useSettings } from '@/store/settings';
@@ -146,8 +145,6 @@ export default function ReviewScreen() {
     setSaving(true);
     try {
       await saveSession(fromStore.id, fromStore.exerciseName, fromStore.createdAt, summary, videoUri, timeline ?? [], videoAspect);
-      schedulePushToCloud();
-      uploadSessionTelemetry(fromStore.id, fromStore.exerciseName, fromStore.createdAt, summary, videoUri, timeline ?? []);
       setPersisted(true);
       leave();
     } catch {
