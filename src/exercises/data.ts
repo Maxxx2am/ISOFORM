@@ -180,7 +180,7 @@ const BODYLINE_AND_KNEE = (lms: Landmark[]) => ({ ...BODYLINE(lms), ...KNEE(lms)
  * (use "- " prefix) — one per exercise family, most important first.
  */
 const PUSH_REP = { angle: 'elbow', downBelow: 110, upAbove: 148 } as const;
-const PULL_REP = { angle: 'elbow', downBelow: 105, upAbove: 140 } as const;
+const PULL_REP = { angle: 'elbow', downBelow: 95, upAbove: 140 } as const;
 
 /** Knees confirmed off the floor: both knees above a minimum screen height.
  * Returns true when it CAN confirm they're up; returns true also when knees
@@ -294,16 +294,18 @@ function stackOffset(lms: Landmark[], jointLeft: L, jointRight: L): number | nul
 
 /** Superman hold gate: wrists and knees must be above a floor line — confirms
  * the athlete is actually lifting their limbs off the ground, not just laying
- * flat face-down. Returns true when it CAN confirm lift on at least one side;
- * returns true also when landmarks aren't visible enough to judge (never
- * rejects on missing data alone — the angle window handles the rest). */
-function wristsKneesOffFloor(lms: Landmark[], floorY = 0.75): boolean {
+ * flat face-down. Uses scale-invariant margin (shoulder width) so the check
+ * works at any camera distance. Returns true when it CAN confirm lift on at
+ * least one side; returns true also when landmarks aren't visible enough to
+ * judge (never rejects on missing data alone — the angle window handles the rest). */
+function wristsKneesOffFloor(lms: Landmark[]): boolean {
   const lw = lms[L.LeftWrist]; const rw = lms[L.RightWrist];
   const lk = lms[L.LeftKnee]; const rk = lms[L.RightKnee];
-  // At least one limb pair must be confidently ABOVE the floor.
+  const hipY = pairY(lms, L.LeftHip, L.RightHip, 'avg');
+  const sw = shoulderWidth(lms);
+  const floorY = hipY != null && sw != null && sw > 1e-4 ? hipY + sw * 0.3 : 0.75;
   const wristUp = (lw && lw.visibility >= 0.4 && lw.y < floorY) || (rw && rw.visibility >= 0.4 && rw.y < floorY);
   const kneeUp = (lk && lk.visibility >= 0.4 && lk.y < floorY) || (rk && rk.visibility >= 0.4 && rk.y < floorY);
-  // If we can see limbs and they're ALL on the floor, reject.
   const wristVisible = (lw && lw.visibility >= 0.4) || (rw && rw.visibility >= 0.4);
   const kneeVisible = (lk && lk.visibility >= 0.4) || (rk && rk.visibility >= 0.4);
   if ((wristVisible && !wristUp) || (kneeVisible && !kneeUp)) return false;
@@ -313,10 +315,35 @@ function wristsKneesOffFloor(lms: Landmark[], floorY = 0.75): boolean {
 /** Planche gate: hands on floor + body roughly horizontal + knees/feet off the floor. */
 function isInPlanche(lms: Landmark[]): boolean {
   if (!handsOnFloor(lms) || !isHorizontal(lms)) return false;
+  if (isInverted(lms)) return false;
   const knee = pairYGate(lms, L.LeftKnee, L.RightKnee, 'min');
   const wrist = pairYGate(lms, L.LeftWrist, L.RightWrist, 'min');
   if (knee == null || wrist == null) return false;
   return knee < wrist - 0.02;
+}
+
+/** Full planche gate: planche position with legs squeezed together.
+ *  Rejects handstands and straddle-width leg positions so a straddle
+ *  doesn't falsely count as a full planche hold. */
+function isFullPlanche(lms: Landmark[]): boolean {
+  if (!isInPlanche(lms)) return false;
+  const scale = torsoScale(lms);
+  const la = lms[L.LeftAnkle]; const ra = lms[L.RightAnkle];
+  if (scale == null || scale < 1e-4) return true;
+  if (la && ra && la.visibility >= 0.5 && ra.visibility >= 0.5) {
+    if (Math.abs(la.x - ra.x) / scale > 0.3) return false;
+  }
+  return true;
+}
+
+/** Straddle planche gate: planche position with legs spread apart.
+ *  Requires visible ankle spread to confirm the straddle position. */
+function isStraddlePlanche(lms: Landmark[]): boolean {
+  if (!isInPlanche(lms)) return false;
+  const scale = torsoScale(lms);
+  const la = lms[L.LeftAnkle]; const ra = lms[L.RightAnkle];
+  if (scale == null || scale < 1e-4 || !la || !ra || la.visibility < 0.5 || ra.visibility < 0.5) return false;
+  return Math.abs(la.x - ra.x) / scale > 0.3;
 }
 
 /** One-leg-forward gate for pistol squat: one ankle well above the other.
@@ -904,8 +931,8 @@ export const EXERCISES: Exercise[] = [
     angles: (lms) => ({ ...KNEE(lms), torsoLean: torsoLeanDeg(lms) }),
     // More forgiving rep thresholds — you don't need to hit ATG or full
     // lockout to register a rep, but the form rules still nudge you toward both.
-    rep: { angle: 'knee', downBelow: 115, upAbove: 148 }, targetAngle: 90,
-    gauge: { angle: 'knee', label: 'Depth', downBelow: 115, upAbove: 148, target: 90 },
+    rep: { angle: 'knee', downBelow: 100, upAbove: 148 }, targetAngle: 90,
+    gauge: { angle: 'knee', label: 'Depth', downBelow: 100, upAbove: 148, target: 90 },
     formRules: [
       { id: 'shallow', bodyPart: 'leg', cue: 'Go lower', say: 'Go lower — get your thighs to parallel.', severity: 'info', test: ({ angles }) => angles.knee != null && angles.knee > 110 && angles.knee < 140 },
       { id: 'no-lockout', bodyPart: 'leg', cue: 'Stand all the way up', say: 'Finish the rep — lock your hips out at the top instead of stopping short.', severity: 'info', test: ({ angles }) => angles.knee != null && angles.knee >= 140 && angles.knee < 160 },
@@ -1024,10 +1051,10 @@ export const EXERCISES: Exercise[] = [
     angles: INVERTED_PRESS,
     // minOk dropped to 40 — a straight handstand is 178°, but arches and
     // slight form breaks shouldn't kill the hold clock. Only feet-on-floor
-    // (fails the gate) or severe knee bend / tuck planche (drops bodyLine
-    // below 40) stops the count. Form rules still flag quality separately.
-    hold: { angle: 'bodyLine', minOk: 40, maxOk: 180 }, targetAngle: 178,
-    gauge: { angle: 'bodyLine', label: 'Straightness', downBelow: 40, upAbove: 180, target: 178 },
+    // (fails the gate) or a deep tuck/planche collapse (drops bodyLine
+    // below 130) stops the count. Form rules still flag quality separately.
+    hold: { angle: 'bodyLine', minOk: 130, maxOk: 180 }, targetAngle: 178,
+    gauge: { angle: 'bodyLine', label: 'Straightness', downBelow: 130, upAbove: 180, target: 178 },
     formRules: [
       // Live-only nudge; it never affects the score (holds score on straightness).
       // Only call an "arch" when the knees are straight — bent knees also drop
@@ -1183,9 +1210,48 @@ export const EXERCISES: Exercise[] = [
     ],
   }),
   def({
-    slug: 'planche', name: 'Planche', category: 'full', mode: 'hold', family: 'planche', level: 3,
+    slug: 'straddle-planche', name: 'Straddle Planche', category: 'full', mode: 'hold', family: 'planche', level: 3,
+    muscles: ['shoulders', 'core', 'chest', 'back', 'glutes'], view: 'side', requiredJoints: STANDING,
+    gate: ({ landmarks }) => isStraddlePlanche(landmarks),
+    setup: 'Film your SIDE from 2–3 m. Straddle planche — legs spread wide, body horizontal.',
+    summary: 'Straddle planche hold. Legs spread for leverage, body parallel to the floor.',
+    howTo: ['Spread your legs wide into a straddle.', 'Lean forward past your hands with straight arms.', 'Lift your legs to horizontal, toes pointed.', 'Hold — squeeze every muscle tight.'],
+    cues: [
+      'Legs spread in a wide V — not together, not tucked',
+      'Body parallel to the floor, straight line from shoulders through hips',
+      'Arms locked completely straight — no bend at all',
+      'Point your toes and keep your knees locked',
+      'Ribs pulled down, back flat — don\'t let your hips sag or pike',
+      'Shoulders protracted, leaning well past your hands',
+      'Hips dropping is fatigue — end the set cleanly',
+      'Warm up shoulders and wrists thoroughly',
+      'Keep breathing — don\'t lock your breath while straining',
+      'A clean straddle is the bridge between tuck and full planche',
+      'Rest 2–3 minutes between attempts — this is max-strength work',
+    ],
+    angles: ELBOW_HIP_BODY_KNEE, hold: { angle: 'bodyLine', minOk: 125, maxOk: 180 }, targetAngle: 178,
+    gauge: { angle: 'bodyLine', label: 'Extension', downBelow: 125, upAbove: 180, target: 178 },
+    formRules: [
+      { id: 'locked-arms', bodyPart: 'arm', cue: 'Lock your arms', say: 'Straight arms — don\'t bend your elbows.', severity: 'warn', test: ({ angles }) => angles.elbow != null && angles.elbow < 160 },
+      { id: 'bent-knees', bodyPart: 'leg', cue: 'Lock your knees', say: 'Keep your knees straight even with legs spread.', severity: 'warn', test: ({ angles }) => angles.knee != null && angles.knee < 160 },
+      { id: 'flat-back', bodyPart: 'torso', cue: 'Straighten your back', say: 'Keep your back flat and parallel.', severity: 'info', test: ({ angles }) => angles.bodyLine != null && angles.bodyLine < 165 && angles.bodyLine >= 150 },
+      { id: 'hips-low', bodyPart: 'torso', cue: 'Lift your hips', say: 'Your hips are sagging — squeeze glutes to lift.', severity: 'warn', test: ({ angles }) => angles.bodyLine != null && angles.bodyLine < 150 },
+      { id: 'shrug', bodyPart: 'arm', cue: 'Protract, don\'t shrug', say: 'Push your shoulders away from your ears.', severity: 'info', test: ({ landmarks }) => { const g = shrugGap(landmarks); return g != null && g < 0.15; } },
+      { id: 'uneven-arms', bodyPart: 'arm', cue: 'Even out both arms', say: 'One arm is taking more of the load — even out.', severity: 'warn', test: ({ landmarks, angles }) => {
+          if (angles.elbow == null) return false;
+          const le = landmarks[L.LeftElbow]; const re = landmarks[L.RightElbow];
+          if (!allVisible(landmarks, [L.LeftShoulder, L.LeftElbow, L.LeftWrist, L.RightShoulder, L.RightElbow, L.RightWrist], 0.5) || !le || !re) return false;
+          const left = jointAngle(landmarks[L.LeftShoulder], le, landmarks[L.LeftWrist]);
+          const right = jointAngle(landmarks[L.RightShoulder], re, landmarks[L.RightWrist]);
+          return Math.abs(left - right) > 20;
+      }},
+      { id: 'lean-more', bodyPart: 'arm', cue: 'Lean shoulders past hands', say: 'Lean your shoulders forward, well past your hands.', severity: 'info', test: ({ landmarks }) => { const o = stackOffset(landmarks, L.LeftShoulder, L.RightShoulder); return o != null && o < 0.3; } },
+    ],
+  }),
+  def({
+    slug: 'planche', name: 'Planche', category: 'full', mode: 'hold', family: 'planche', level: 4,
     muscles: ['shoulders', 'core', 'chest', 'back'], view: 'side', requiredJoints: STANDING,
-    gate: ({ landmarks }) => isInPlanche(landmarks),
+    gate: ({ landmarks }) => isFullPlanche(landmarks),
     setup: 'Film your SIDE from 2–3 m. Full planche — body horizontal with straight legs.',
     summary: 'Ultimate static hold. Body parallel to the floor on straight arms.',
     howTo: ['Lean forward past your hands with straight arms.', 'Squeeze your entire body.', 'Lift your legs to horizontal, toes pointed.', 'Hold — every muscle tight.'],
@@ -1210,7 +1276,7 @@ export const EXERCISES: Exercise[] = [
     // targetAngle track bodyLine at 125-180/178. The live bar was reading a
     // tucked shape as perfect and a real full planche as failing.
     angles: ELBOW_HIP_BODY_KNEE, hold: { angle: 'bodyLine', minOk: 125, maxOk: 180 }, targetAngle: 178,
-    gauge: { angle: 'bodyLine', label: 'Extension', downBelow: 120, upAbove: 180, target: 178 },
+    gauge: { angle: 'bodyLine', label: 'Extension', downBelow: 125, upAbove: 180, target: 178 },
     formRules: [
       { id: 'locked-arms', bodyPart: 'arm', cue: 'Lock your arms', say: 'Straight arms — don\'t bend your elbows.', severity: 'warn', test: ({ angles }) => angles.elbow != null && angles.elbow < 160 },
       { id: 'bent-knees', bodyPart: 'leg', cue: 'Straighten your legs', say: 'Point your toes and squeeze your legs together.', severity: 'warn', test: ({ angles }) => angles.knee != null && angles.knee < 160 },
@@ -1419,7 +1485,7 @@ export const EXERCISES: Exercise[] = [
     // `undefined` forever, so it could never fire. Swapped to the combinator
     // that actually includes knee.
     angles: ELBOW_HIP_BODY_KNEE, hold: { angle: 'bodyLine', minOk: 125, maxOk: 180 }, targetAngle: 178,
-    gauge: { angle: 'bodyLine', label: 'Straightness', downBelow: 120, upAbove: 180, target: 178 },
+    gauge: { angle: 'bodyLine', label: 'Straightness', downBelow: 125, upAbove: 180, target: 178 },
     formRules: [
       { id: 'bent-arms', bodyPart: 'arm', cue: 'Straight arms', say: 'Lock your arms completely.', severity: 'warn', test: ({ angles }) => angles.elbow != null && angles.elbow < 160 },
       { id: 'bent-knees', bodyPart: 'leg', cue: 'Straighten your legs', say: 'Lock your knees and point your toes.', severity: 'warn', test: ({ angles }) => angles.knee != null && angles.knee < 160 },
@@ -1494,7 +1560,7 @@ export const EXERCISES: Exercise[] = [
       { id: 'banana-mild', bodyPart: 'torso', cue: 'Tighten your line', say: 'Brace your abs — start tightening your line before it becomes a full arch.', severity: 'info', test: ({ angles }) => angles.bodyLine != null && angles.bodyLine < 165 && angles.bodyLine >= 155 },
       { id: 'banana', bodyPart: 'torso', cue: 'Straighten your line', say: 'Don\'t arch your back — squeeze your line tight.', severity: 'warn', test: ({ angles }) => angles.bodyLine != null && angles.bodyLine < 155 },
       { id: 'shallow', bodyPart: 'arm', cue: 'Go deeper', say: 'Lower further — a full HSPU goes well past 90°, closer to a full bend.', severity: 'info', test: ({ angles }) => angles.elbow != null && angles.elbow > 115 && angles.elbow < 150 },
-      { id: 'no-lockout', bodyPart: 'arm', cue: 'Lock out at the top', say: 'Press all the way to a full lockout at the top — straight arms every rep.', severity: 'info', test: ({ angles }) => angles.elbow != null && angles.elbow >= 150 && angles.elbow < 155 },
+      { id: 'no-lockout', bodyPart: 'arm', cue: 'Lock out at the top', say: 'Press all the way to a full lockout at the top — straight arms every rep.', severity: 'info', test: ({ angles }) => angles.elbow != null && angles.elbow >= 145 && angles.elbow < 155 },
       { id: 'bent-knees', bodyPart: 'leg', cue: 'Straighten and squeeze your legs', say: 'Point your toes and squeeze your legs together for a tighter, easier line.', severity: 'info', test: ({ angles }) => angles.knee != null && angles.knee < 140 },
       { id: 'not-stacked', bodyPart: 'torso', cue: 'Stack your hips over your shoulders', say: 'Keep your hips stacked over your shoulders as you press — don\'t let them drift.', severity: 'warn', test: ({ angles }) => angles.lean != null && angles.lean > 15 },
       { id: 'legs-apart', bodyPart: 'leg', cue: 'Squeeze your legs together', say: 'Squeeze your legs together for a tighter, easier line.', severity: 'info', test: ({ landmarks }) => {
@@ -1760,6 +1826,7 @@ export const EXERCISES: Exercise[] = [
     gauge: { angle: 'knee', label: 'Depth', downBelow: 100, upAbove: 160, target: 75 },
     formRules: [
       { id: 'shallow', bodyPart: 'leg', cue: 'Go deeper', say: 'Squat all the way — hamstring to calf.', severity: 'info', test: ({ angles }) => angles.knee != null && angles.knee > 110 && angles.knee < 145 },
+      { id: 'no-lockout', bodyPart: 'leg', cue: 'Stand all the way up', say: 'Finish the rep — lock your support leg out at the top.', severity: 'info', test: ({ angles }) => angles.knee != null && angles.knee >= 150 && angles.knee < 160 },
       { id: 'extended-leg-bent', bodyPart: 'leg', cue: 'Straighten your extended leg', say: 'Keep your front leg locked straight — foot off the floor.', severity: 'warn', test: ({ landmarks }) => {
           const support = pistolSupportSide(landmarks);
           if (!support) return false;
@@ -1999,10 +2066,10 @@ export const EXERCISES: Exercise[] = [
       'A shaky finish is normal — that\'s near-failure, not a sign of doing it wrong',
       'Rest fully between attempts if you\'re doing more than one',
     ],
-    angles: (lms) => ({ ...KNEE(lms), torsoLean: torsoLeanDeg(lms) }), hold: { angle: 'knee', minOk: 60, maxOk: 115 }, targetAngle: 90,
-    gauge: { angle: 'knee', label: 'Angle', downBelow: 70, upAbove: 110, target: 90 },
+    angles: (lms) => ({ ...KNEE(lms), torsoLean: torsoLeanDeg(lms) }),     hold: { angle: 'knee', minOk: 60, maxOk: 105 }, targetAngle: 90,
+    gauge: { angle: 'knee', label: 'Angle', downBelow: 70, upAbove: 105, target: 90 },
     formRules: [
-      { id: 'too-high', bodyPart: 'leg', cue: 'Sit lower', say: 'Slide down until your thighs are parallel to the floor.', severity: 'info', test: ({ angles }) => angles.knee != null && angles.knee > 115 },
+      { id: 'too-high', bodyPart: 'leg', cue: 'Sit lower', say: 'Slide down until your thighs are parallel to the floor.', severity: 'info', test: ({ angles }) => angles.knee != null && angles.knee > 105 },
       // FIXED (B19): threshold (65) left a dead zone between it and the
       // hold's own minOk (60) — credited AND corrected with no explanation
       // for why the clock would stop just below it. Aligned to the same 60.

@@ -100,6 +100,8 @@ export function ExerciseTracker({
   const [gaugeDown, setGaugeDown] = useState(95 / 180);
   const [gaugeUp, setGaugeUp] = useState(155 / 180);
   const [gaugeTarget, setGaugeTarget] = useState(90 / 180);
+
+  useEffect(() => () => { if (safetyTimerRef.current) clearTimeout(safetyTimerRef.current); }, []);
   const [gaugeVisible, setGaugeVisible] = useState(false);
 
   const [phase, setPhase] = useState<Phase>('setup');
@@ -117,6 +119,7 @@ export function ExerciseTracker({
   const trackStartRef = useRef<number | null>(null);
   const lastFrameTRef = useRef(0);
   const finalizedRef = useRef(false);
+  const safetyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const prevReps = useRef(0);
   const prevCue = useRef<string | null>(null);
   const hitCheckpointsRef = useRef<Set<number>>(new Set());
@@ -303,7 +306,7 @@ export function ExerciseTracker({
     if (cameraActive) {
       camRef.current?.finish();
       // Safety net if the video message never arrives.
-      setTimeout(() => finishSet(null), 6000);
+      safetyTimerRef.current = setTimeout(() => finishSet(null), 6000);
     } else {
       finishSet(null);
     }
@@ -314,11 +317,14 @@ export function ExerciseTracker({
   const metricLabel = isHold ? 'HOLD' : 'REPS';
   const showCamLoader = cameraActive && !camVisuallyReady && phase !== 'processing';
   const tracking = phase === 'tracking';
-  const goalCurrent = goal ? (goal.type === 'reps' ? live.reps : live.holdSeconds) : 0;
-  const sortedGoalValues = goal ? [...goal.values].sort((a, b) => a - b) : [];
-  const nextCheckpoint = sortedGoalValues.find((v) => !hitCheckpoints.includes(v));
-  const allCheckpointsHit = sortedGoalValues.length > 0 && nextCheckpoint == null;
-  const goalProgress = goal ? (nextCheckpoint != null ? Math.min(1, goalCurrent / nextCheckpoint) : 1) : undefined;
+  const { sortedGoalValues, allCheckpointsHit, goalProgress } = useMemo(() => {
+    const current = goal ? (goal.type === 'reps' ? live.reps : live.holdSeconds) : 0;
+    const sorted = goal ? [...goal.values].sort((a, b) => a - b) : [];
+    const next = sorted.find((v: number) => !hitCheckpoints.includes(v));
+    const allHit = sorted.length > 0 && next == null;
+    const progress = goal ? (next != null ? Math.min(1, current / next) : 1) : undefined;
+    return { sortedGoalValues: sorted, allCheckpointsHit: allHit, goalProgress: progress };
+  }, [live.reps, live.holdSeconds, goal, hitCheckpoints]);
 
   return (
     <View style={styles.root}>

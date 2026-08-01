@@ -9,11 +9,12 @@ import { bestSessionFor } from '@/lib/insights';
 import { makeId } from '@/lib/format';
 import { useSessionStore } from '@/store/session';
 import { FREE_EXERCISES, useSubscription } from '@/store/subscription';
+import { useChallengeStore } from '@/store/challenge';
 import type { ExerciseGoal } from '@/store/workouts';
 import { listSessions, saveSession } from '@/storage/db';
 
 export default function ActiveWorkoutScreen() {
-  const { slug, goalType, goalValues } = useLocalSearchParams<{ slug: string; goalType?: string; goalValues?: string }>();
+  const { slug, goalType, goalValues, challengeId, challengeTarget } = useLocalSearchParams<{ slug: string; goalType?: string; goalValues?: string; challengeId?: string; challengeTarget?: string }>();
   const exercise = getExercise(slug);
   const hasAllAccess = useSubscription((s) => s.hasAllAccess);
   const setFinished = useSessionStore((s) => s.setFinished);
@@ -55,12 +56,32 @@ export default function ActiveWorkoutScreen() {
         // Awaited (not fire-and-forget): a quick second attempt's previousBest
         // lookup must never race ahead of this write finishing.
         await saveSession(id, exercise.name, createdAt, result.summary, result.videoUri, result.timeline, result.videoAspect).catch(() => {});
+
+        if (challengeId && challengeTarget) {
+          const target = Number(challengeTarget);
+          const score = (() => {
+            const reps = result.summary.reps;
+            const hold = result.summary.holdSeconds;
+            const form = result.summary.formQuality ?? 70;
+            return Math.round(Math.max(reps, hold) * (form / 100));
+          })();
+          useChallengeStore.getState().saveResult({
+            date: new Date().toISOString().slice(0, 10),
+            challengeId,
+            exerciseSlug: exercise.slug,
+            target,
+            score,
+            bestReps: result.summary.reps,
+            bestHoldSeconds: result.summary.holdSeconds,
+          });
+        }
+
         router.replace({ pathname: '/workout/review/[id]', params: { id } });
       } catch {
         router.replace('/(tabs)');
       }
     },
-    [exercise, setFinished],
+    [exercise, setFinished, challengeId, challengeTarget],
   );
 
   if (!exercise) {

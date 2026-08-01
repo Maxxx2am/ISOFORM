@@ -57,6 +57,17 @@ This is the "push-to-GitHub-to-update-the-app" system:
 ```
 Rep exercises get `rep` + `gauge`. Hold exercises get `hold` + `gauge`. The `gauge` field requires a compiled gauge in `data.ts` — it patches existing fields, it doesn't create them.
 
+### Pending Before Next Publish
+
+- **iCloud sync** — iCloud row was removed from Settings (broken/not implemented). To add it back:
+  1. Enable iCloud capability in Apple Developer portal for `com.maxxxdev.isoform`
+  2. Implement NSUbiquitousKeyValueStore + CloudKit sync (use `db.ts` `insertIfMissing()` as merge target)
+  3. Add `com.apple.developer.icloud-services` to `app.json` entitlements
+  4. Regenerate provisioning profile
+  5. The old implementation was in a deleted `src/lib/icloudSync.ts` — check git history @ commit `d4fa0ee`
+
+### Known Exercise Tracking Gaps
+
 ### Database Notes
 
 - SQLite via `expo-sqlite` — sessions table with migrations for added columns

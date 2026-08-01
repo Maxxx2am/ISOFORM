@@ -61,17 +61,11 @@ export function formQualityColor(quality: number): string {
  * "pure monochrome" look; the rest are its optional Apple-hue tints.
  */
 export const Accents = {
-  mono: { id: 'mono', label: 'Mono', color: '#FFFFFF', onColor: '#000000' },
-  purple: { id: 'purple', label: 'Purple', color: '#BF5AF2', onColor: '#FFFFFF' },
-  orange: { id: 'orange', label: 'Orange', color: '#FF9F0A', onColor: '#000000' },
-  blue: { id: 'blue', label: 'Blue', color: '#0A84FF', onColor: '#FFFFFF' },
   green: { id: 'green', label: 'Green', color: '#30D158', onColor: '#000000' },
-  teal: { id: 'teal', label: 'Teal', color: '#5AC8FA', onColor: '#000000' },
-  pink: { id: 'pink', label: 'Pink', color: '#FF3CA0', onColor: '#FFFFFF' },
 } as const;
 
 export type AccentId = keyof typeof Accents;
-export const DEFAULT_ACCENT: AccentId = 'mono';
+export const DEFAULT_ACCENT: AccentId = 'green';
 
 /** 4pt spacing scale. Page gutter is 20 (ISOMTRIC). */
 export const Spacing = {

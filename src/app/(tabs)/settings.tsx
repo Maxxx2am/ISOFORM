@@ -1,28 +1,25 @@
 import { Ionicons } from '@expo/vector-icons';
 import Constants from 'expo-constants';
-import * as Device from 'expo-device';
 import * as FileSystem from 'expo-file-system/legacy';
 import { router } from 'expo-router';
 import * as Sharing from 'expo-sharing';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Linking, Pressable, Share, StyleSheet, Switch, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, Linking, Pressable, StyleSheet, Switch, TextInput, View } from 'react-native';
 
 import { ListGroup, ListRow, SectionLabel } from '@/components/ListGroup';
 import { Screen } from '@/components/Screen';
 import { Text } from '@/components/Text';
 import { useExerciseRegistry } from '@/exercises/registry';
-import { buildDebugInfo, deleteAllData, exportDataAsJson, resetSettingsAndProfile, seedDemoSessions, triggerTestCrash } from '@/lib/devTools';
+import { deleteAllData, exportDataAsJson } from '@/lib/devTools';
 import { formatRelativeDay } from '@/lib/format';
 import { cmToFeetInches, feetInchesToCm, kgToLb, lbToKg, useProfile } from '@/store/profile';
 import { useSettings, type CameraFacing } from '@/store/settings';
-import { useSubscription } from '@/store/subscription';
-import { Accents, Feedback, Radius, Spacing, type AccentId } from '@/theme/palette';
+import { Feedback, Radius, Spacing } from '@/theme/palette';
 import { useTheme } from '@/theme/useTheme';
 
 export default function SettingsScreen() {
   const t = useTheme();
   const s = useSettings();
-  const sub = useSubscription();
   const profile = useProfile();
   const [busy, setBusy] = useState<string | null>(null);
 
@@ -67,99 +64,12 @@ export default function SettingsScreen() {
     );
   };
 
-  const onSeedDemo = async () => {
-    setBusy('seed');
-    try {
-      const count = await seedDemoSessions();
-      Alert.alert('Demo data added', `Inserted ${count} fake sessions to test Insights/Review with.`);
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  const onCopyDebugInfo = async () => {
-    setBusy('debug');
-    try {
-      const info = await buildDebugInfo();
-      if (await Sharing.isAvailableAsync()) {
-        await Share.share({ message: info });
-      } else {
-        Alert.alert('Debug info', info);
-      }
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  const onResetSettings = () => {
-    Alert.alert(
-      'Reset settings & profile?',
-      'Restores accent/coaching/body-stat preferences to their defaults. Your workout history is untouched.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Reset', style: 'destructive', onPress: resetSettingsAndProfile },
-      ],
-    );
-  };
-
-  const onTriggerCrash = () => {
-    Alert.alert(
-      'Trigger a test crash?',
-      'Throws a real uncaught error so you can confirm the fatal-error screen looks right before shipping.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Crash now', style: 'destructive', onPress: triggerTestCrash },
-      ],
-    );
-  };
-
   const appVersion = Constants.expoConfig?.version ?? '—';
-  const deviceInfo = `${Device.modelName ?? 'Unknown device'} · ${Device.osName ?? ''} ${Device.osVersion ?? ''}`.trim();
 
   return (
     <Screen scroll>
       <View style={{ paddingTop: Spacing.md }}>
         <Text variant="title">Settings</Text>
-      </View>
-
-      {/* Accent picker — single row of 7 circles */}
-      <View style={{ marginTop: Spacing.lg }}>
-        <SectionLabel>Accent</SectionLabel>
-        <View style={[styles.accentRow, { backgroundColor: t.surface.raised, borderColor: t.ink.hairline }]}>
-          {(Object.keys(Accents) as AccentId[]).map((id) => {
-            const selected = id === s.accent;
-            const color = id === 'mono' ? t.ink.primary : Accents[id].color;
-            const onColor = id === 'mono' ? t.surface.base : Accents[id].onColor;
-            const label = Accents[id].label;
-            return (
-              <Pressable
-                key={id}
-                onPress={() => s.setAccent(id)}
-                style={styles.accentCol}
-              >
-                <View
-                  style={[
-                    styles.accentDot,
-                    {
-                      backgroundColor: color,
-                      borderColor: selected ? t.ink.primary : 'transparent',
-                      borderWidth: selected ? 2.5 : 0,
-                    },
-                  ]}
-                >
-                  {selected ? <Ionicons name="checkmark" size={12} color={onColor} /> : null}
-                </View>
-                <Text
-                  variant="label"
-                  tone={selected ? 'primary' : 'muted'}
-                  style={styles.accentLabel}
-                >
-                  {label}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
       </View>
 
       <View style={{ marginTop: Spacing.lg }}>
@@ -281,18 +191,17 @@ export default function SettingsScreen() {
       <View style={{ marginTop: Spacing.lg }}>
         <SectionLabel>Backup & data</SectionLabel>
         <ListGroup>
-          <ListRow
-            title="Export my data"
-            subtitle="Share your full workout history as a JSON file"
-            onPress={busy ? undefined : onExport}
-            right={busy === 'export' ? <Text variant="caption" tone="muted">Working…</Text> : <Ionicons name="share-outline" size={18} color={t.ink.muted} />}
-          />
-          <ListRow
-            title="iCloud sync"
-            subtitle="Back up history across your devices — coming soon"
-            right={<Switch value={false} disabled trackColor={{ true: Feedback.good, false: t.surface.pressed }} thumbColor="#FFFFFF" />}
-          />
-          <ListRow
+            <ListRow
+              title="Export my data"
+              subtitle="Share your full workout history as a JSON file"
+              onPress={busy ? undefined : onExport}
+              right={busy === 'export' ? <Text variant="caption" tone="muted">Working…</Text> : <Ionicons name="share-outline" size={18} color={t.ink.muted} />}
+            />
+            {/* TODO(iCloud): Add iCloud sync row here before next publish.
+                Requires: 1) iCloud entitlement in Apple Developer portal for com.maxxxdev.isoform
+                2) NSUbiquitousKeyValueStore + CloudKit sync code (see db.ts insertIfMissing)
+                3) Regenerate provisioning profile with iCloud capability */}
+            <ListRow
             title="Delete all data"
             subtitle="Permanently erase every logged workout"
             onPress={busy ? undefined : onDeleteAll}
@@ -321,44 +230,6 @@ export default function SettingsScreen() {
             title="Everything stays on your phone"
             subtitle="No account. No cloud. Pose tracking and video never leave the device."
           />
-        </ListGroup>
-      </View>
-
-      {/* Dev / testing tools */}
-      <View style={{ marginTop: Spacing.lg }}>
-        <SectionLabel>Developer</SectionLabel>
-        <ListGroup>
-          <ListRow
-            title="All Access"
-            subtitle="Dev bypass — toggles unlock without payment. Ship with this OFF."
-            right={<Toggle value={sub.hasAllAccess} onChange={(v) => (v ? sub.grantAllAccess() : sub.revokeAllAccess())} />}
-          />
-          <ListRow
-            title="Seed demo data"
-            subtitle="Add 2 weeks of fake sessions to test Insights/Review"
-            onPress={busy ? undefined : onSeedDemo}
-            right={busy === 'seed' ? <Text variant="caption" tone="muted">Working…</Text> : <Ionicons name="flask-outline" size={18} color={t.ink.muted} />}
-          />
-          <ListRow
-            title="Copy debug info"
-            subtitle="Version, device, session counts — for a bug report"
-            onPress={busy ? undefined : onCopyDebugInfo}
-            right={busy === 'debug' ? <Text variant="caption" tone="muted">Working…</Text> : <Ionicons name="clipboard-outline" size={18} color={t.ink.muted} />}
-          />
-          <ListRow
-            title="Reset settings & profile"
-            subtitle="Back to defaults — workout history is kept"
-            onPress={onResetSettings}
-            right={<Ionicons name="refresh-outline" size={18} color={t.ink.muted} />}
-          />
-          <ListRow
-            title="Trigger test crash"
-            subtitle="Verify the fatal-error screen before shipping"
-            onPress={onTriggerCrash}
-            right={<Ionicons name="skull-outline" size={18} color={Feedback.bad} />}
-          />
-          <ListRow title="App version" right={<Text variant="caption" tone="muted">{appVersion}</Text>} />
-          <ListRow title="Device" right={<Text variant="caption" tone="muted" numberOfLines={1}>{deviceInfo || '—'}</Text>} />
         </ListGroup>
       </View>
 
@@ -562,7 +433,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  accentLabel: { fontSize: 9, letterSpacing: 0.5 },
+  accentLabel: { fontSize: 10, letterSpacing: 0.5 },
   segment: { flexDirection: 'row', borderRadius: Radius.pill, padding: 2, gap: 2 },
   segItem: { paddingHorizontal: 12, paddingVertical: 5, borderRadius: Radius.pill },
   footer: { textAlign: 'center', marginTop: Spacing.xl },
