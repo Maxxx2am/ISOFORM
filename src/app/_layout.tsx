@@ -8,7 +8,6 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { FatalErrorScreen } from '@/components/FatalErrorScreen';
-import { startAutoRefresh } from '@/exercises/registry';
 import { installGlobalErrorHandler, onFatalError } from '@/lib/globalErrorHandler';
 import { preloadAppImages } from '@/lib/preloadAssets';
 import { useTheme } from '@/theme/useTheme';
@@ -35,14 +34,15 @@ export default function RootLayout() {
     SplashScreen.hideAsync().catch(() => {});
   }, []);
 
-  // Preload rank/achievement/streak icons + fetch remote exercise config
-  // once the first screen has fully rendered — won't compete with the
-  // initial frame. The remote fetch populates the Content updates widget
-  // in Settings with the latest changelog from the repo.
+  // Preload rank/achievement/streak icons once the first screen has fully
+  // rendered — InteractionManager.runAfterInteractions queues work after
+  // the native transition + any pending animations finish, so this never
+  // competes with the initial frame. In a production build with bundled
+  // assets this is a no-op, but in Expo Go it saves 20+ Metro round-trips
+  // from hitting the bridge during the critical first render path.
   useEffect(() => {
     const handle = InteractionManager.runAfterInteractions(() => {
       preloadAppImages();
-      startAutoRefresh();
     });
     return () => handle.cancel();
   }, []);

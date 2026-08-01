@@ -1,12 +1,6 @@
 {
-  "version": 3,
+  "version": 2,
   "changelog": [
-    {
-      "version": 3,
-      "date": "2026-07-30",
-      "title": "Rep gauge green zones expanded to 25%, faster launch, collapsible insights",
-      "body": "- Rep gauge: green zone expanded from 20% to 25% at both ends (depth + lockout) — easier to stay in the green\n- Launch: assets now load after first screen renders, so the app opens faster\n- Insights: achievements & muscle focus sections are now collapsible (show 4 + \"more\" button)\n- Buttons: spring-animated press effect on every primary action button"
-    },
     {
       "version": 2,
       "date": "2026-07-29",
@@ -26,8 +20,8 @@
       "gauge": { "downBelow": 110, "upAbove": 148 }
     },
     "pullup": {
-      "rep": { "downBelow": 95, "upAbove": 140 },
-      "gauge": { "downBelow": 95, "upAbove": 140 }
+      "rep": { "downBelow": 105, "upAbove": 140 },
+      "gauge": { "downBelow": 105, "upAbove": 140 }
     },
     "l-sit": {
       "hold": { "minOk": 45, "maxOk": 135 },
@@ -38,16 +32,16 @@
       "gauge": { "downBelow": 150, "upAbove": 180 }
     },
     "squat": {
-      "rep": { "downBelow": 100, "upAbove": 148 },
-      "gauge": { "downBelow": 100, "upAbove": 148 }
+      "rep": { "downBelow": 115, "upAbove": 148 },
+      "gauge": { "downBelow": 115, "upAbove": 148 }
     },
     "dip": {
       "rep": { "downBelow": 115, "upAbove": 148 },
       "gauge": { "downBelow": 115, "upAbove": 148 }
     },
     "handstand": {
-      "hold": { "minOk": 130, "maxOk": 180 },
-      "gauge": { "downBelow": 130, "upAbove": 180 }
+      "hold": { "minOk": 40, "maxOk": 180 },
+      "gauge": { "downBelow": 40, "upAbove": 180 }
     },
     "tuck-planche": {
       "hold": { "minOk": 0, "maxOk": 115 },
@@ -56,10 +50,6 @@
     "adv-tuck-planche": {
       "hold": { "minOk": 50, "maxOk": 155 },
       "gauge": { "downBelow": 50, "upAbove": 155 }
-    },
-    "straddle-planche": {
-      "hold": { "minOk": 125, "maxOk": 180 },
-      "gauge": { "downBelow": 125, "upAbove": 180 }
     },
     "planche": {
       "hold": { "minOk": 110, "maxOk": 180 },
@@ -106,8 +96,8 @@
       "gauge": { "downBelow": 95, "upAbove": 148 }
     },
     "wall-sit": {
-      "hold": { "minOk": 60, "maxOk": 105 },
-      "gauge": { "downBelow": 70, "upAbove": 105 }
+      "hold": { "minOk": 50, "maxOk": 120 },
+      "gauge": { "downBelow": 50, "upAbove": 120 }
     },
     "jump-squat": {
       "rep": { "downBelow": 115, "upAbove": 130 },
@@ -128,10 +118,6 @@
     "mountain-climbers": {
       "rep": { "downBelow": 90, "upAbove": 140 },
       "gauge": { "downBelow": 90, "upAbove": 140 }
-    },
-    "hspu-90": {
-      "rep": { "downBelow": 100, "upAbove": 138 },
-      "gauge": { "downBelow": 100, "upAbove": 138 }
     }
   },
   "additions": []

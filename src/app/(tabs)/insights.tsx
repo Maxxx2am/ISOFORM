@@ -36,21 +36,12 @@ export default function InsightsScreen() {
   const [showAllMuscles, setShowAllMuscles] = useState(false);
   const profile = useProfile();
   const rankShareRef = useRef<RankShareCardHandle>(null);
-  const sessionsCacheRef = useRef<{ data: SessionRecord[] | null; ts: number }>({ data: null, ts: 0 });
 
   useFocusEffect(
     useCallback(() => {
       let alive = true;
-      const now = Date.now();
-      if (sessionsCacheRef.current.data && now - sessionsCacheRef.current.ts < 30_000) {
-        setSessions(sessionsCacheRef.current.data);
-        return;
-      }
       listSessions()
-        .then((rows) => {
-          sessionsCacheRef.current = { data: rows, ts: now };
-          if (alive) setSessions(rows);
-        })
+        .then((rows) => alive && setSessions(rows))
         .catch(() => alive && setSessions([]));
       return () => { alive = false; };
     }, []),

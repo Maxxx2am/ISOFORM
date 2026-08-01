@@ -109,7 +109,7 @@ export const POSE_HTML = `<!DOCTYPE html>
   async function main(){
     var mod, PoseLandmarker, FilesetResolver, landmarker, connections;
     try {
-      setStatus('Downloading tracking engine');
+      setStatus('Loading MediaPipe');
       mod = await import('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@' + V + '/vision_bundle.mjs');
       PoseLandmarker = mod.PoseLandmarker; FilesetResolver = mod.FilesetResolver;
     } catch(e){ return fail('load-lib', e); }
@@ -120,7 +120,7 @@ export const POSE_HTML = `<!DOCTYPE html>
     } catch(e){ return fail('wasm', e); }
 
     var modelPath = 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task';
-    setStatus('Preparing AI body tracker');
+    setStatus('Loading model');
     try {
       landmarker = await PoseLandmarker.createFromOptions(fileset, { baseOptions:{ modelAssetPath: modelPath, delegate:'GPU' }, runningMode:'VIDEO', numPoses:1 });
     } catch(e){

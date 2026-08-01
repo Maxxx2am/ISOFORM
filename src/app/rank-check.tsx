@@ -176,7 +176,7 @@ function RevealScreen({ result, onCheckAnother }: { result: Result; onCheckAnoth
   const valueLabel = result.exercise.mode === 'hold' ? `${result.value}s hold` : `${result.value} reps`;
 
   return (
-    <Screen scroll>
+    <Screen>
       <Stack.Screen options={{ headerShown: false }} />
       {showConfetti ? <Confetti onDone={() => setShowConfetti(false)} /> : null}
       <View style={styles.headerRow}>

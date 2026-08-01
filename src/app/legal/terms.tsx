@@ -21,61 +21,43 @@ export default function TermsScreen() {
         <Text variant="title">Terms of Use</Text>
       </View>
 
-      <Text tone="secondary" style={{ marginTop: Spacing.lg }}>Last updated: July 31, 2026</Text>
+      <Text tone="secondary" style={{ marginTop: Spacing.lg }}>Last updated: [date]</Text>
 
       <Section title="Not a medical device">
-        ISOFORM uses on-device pose estimation to count reps and provide real-time form feedback during
-        bodyweight workouts. It is a training aid, not a medical, diagnostic, or physical-therapy device.
-        Pose estimation can be inaccurate — always listen to your body over the app, and stop any
-        exercise that causes pain or discomfort.
+        ISOFORM estimates your body position from camera video and gives coaching feedback based on
+        that estimate. It is a training aid, not a medical, diagnostic, or physical-therapy device. Pose
+        estimation can be wrong — always listen to your own body over the app, and stop any exercise
+        that causes pain.
       </Section>
 
       <Section title="Train at your own risk">
-        Calisthenics and bodyweight training carry inherent risk of injury, especially advanced movements
-        (handstands, levers, planche, muscle-ups). Only attempt exercises appropriate to your current
-        strength and mobility. Warm up properly. Consult a medical professional before starting a new
-        exercise program if you have any pre-existing condition, are pregnant, or are recovering from
-        injury. ISOFORM is not responsible for injuries sustained while using the app.
+        Calisthenics and bodyweight training carry a real risk of injury, especially advanced moves
+        (handstands, levers, planche work). Only attempt exercises appropriate to your current strength
+        and mobility, warm up properly, and consult a medical professional before starting a new
+        exercise program if you have any relevant health condition.
       </Section>
 
       <Section title="Your content">
-        Videos you record during a workout are stored locally on your device (or in your Photos library
-        if you choose to save them). They are never uploaded, shared, or transmitted by the app. You are
-        solely responsible for anything you do with a saved video afterward.
+        Videos you record are stored on your device (or your Photos library, if you save them) and are
+        never uploaded by the app. You&apos;re responsible for whatever you choose to do with a saved video
+        afterward.
       </Section>
 
-      <Section title="Content updates">
-        ISOFORM periodically checks for updated exercise configurations from a public GitHub repository
-        to keep rep-counting thresholds and exercise data current. This check does not transmit any
-        personal information — it only downloads a small JSON file. The app functions fully offline and
-        uses locally cached data when no connection is available.
-      </Section>
-
-      <Section title="Subscriptions & purchases">
-        Certain exercises and features may require an in-app purchase or subscription, billed through
-        Apple&apos;s App Store under Apple&apos;s standard subscription terms. All payments are processed by Apple,
-        not by us. Subscriptions auto-renew unless cancelled at least 24 hours before the current period
-        ends. Manage or cancel from your device&apos;s App Store account settings. Prices and availability are
-        subject to change.
+      <Section title="Subscriptions">
+        Optional paid unlocks, when available, will be billed through the App Store under Apple&apos;s
+        standard subscription terms and can be managed or cancelled from your device&apos;s App Store
+        account settings.
       </Section>
 
       <Section title="No warranty">
-        The app is provided &quot;as is&quot; without warranty of any kind. Rep counts, form scores, and coaching
-        cues are estimates based on camera input and may be inaccurate due to lighting, camera angle,
-        clothing, or other factors. We do not guarantee the accuracy of any measurement and are not liable
-        for injuries, tracking errors, or any other outcomes from using the app.
-      </Section>
-
-      <Section title="Offline use">
-        ISOFORM is designed to work without an internet connection. Pose tracking, rep counting, and
-        session storage all run locally on your device. Only optional content updates require network
-        access.
+        The app is provided &quot;as is.&quot; We don&apos;t guarantee the accuracy of rep counts, form scores, or
+        coaching feedback, and we&apos;re not liable for injuries, missed workouts, or other outcomes from
+        using it.
       </Section>
 
       <Section title="Changes">
-        These terms may be updated as the app evolves. Continued use after an update constitutes
-        acceptance of the revised terms. The &quot;last updated&quot; date at the top of this page reflects
-        the most recent revision.
+        These terms may be updated as the app changes; continued use after an update means you accept
+        the revised terms.
       </Section>
 
       <Section title="Contact">

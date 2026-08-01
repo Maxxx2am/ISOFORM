@@ -106,6 +106,7 @@ const ELITE_ANCHOR: Record<string, number> = {
   'l-sit': 60,
   plank: 240,
   pistol: 20,
+  'diamond-pushup': 35,
   hespu: 20,
   'muscle-up': 12,
   'front-lever': 40,
@@ -214,9 +215,7 @@ function tierFromEffective(
   const tierIndex = Math.max(0, Math.min(TIER_COUNT - 1, idx + 1));
   const floor = idx >= 0 ? thresholds[idx] : 0;
   const nextThreshold = thresholds[idx + 1];
-  const progressToNext = nextThreshold != null && nextThreshold > floor
-    ? Math.min(1, Math.max(0, (effective - floor) / (nextThreshold - floor)))
-    : 1;
+  const progressToNext = nextThreshold != null ? Math.min(1, Math.max(0, (effective - floor) / (nextThreshold - floor))) : 1;
   return {
     tierIndex,
     progressToNext,

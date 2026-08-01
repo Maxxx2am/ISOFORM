@@ -100,8 +100,6 @@ export function ExerciseTracker({
   const [gaugeDown, setGaugeDown] = useState(95 / 180);
   const [gaugeUp, setGaugeUp] = useState(155 / 180);
   const [gaugeTarget, setGaugeTarget] = useState(90 / 180);
-
-  useEffect(() => () => { if (safetyTimerRef.current) clearTimeout(safetyTimerRef.current); }, []);
   const [gaugeVisible, setGaugeVisible] = useState(false);
 
   const [phase, setPhase] = useState<Phase>('setup');
@@ -119,7 +117,6 @@ export function ExerciseTracker({
   const trackStartRef = useRef<number | null>(null);
   const lastFrameTRef = useRef(0);
   const finalizedRef = useRef(false);
-  const safetyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const prevReps = useRef(0);
   const prevCue = useRef<string | null>(null);
   const hitCheckpointsRef = useRef<Set<number>>(new Set());
@@ -306,7 +303,7 @@ export function ExerciseTracker({
     if (cameraActive) {
       camRef.current?.finish();
       // Safety net if the video message never arrives.
-      safetyTimerRef.current = setTimeout(() => finishSet(null), 6000);
+      setTimeout(() => finishSet(null), 6000);
     } else {
       finishSet(null);
     }
@@ -317,14 +314,11 @@ export function ExerciseTracker({
   const metricLabel = isHold ? 'HOLD' : 'REPS';
   const showCamLoader = cameraActive && !camVisuallyReady && phase !== 'processing';
   const tracking = phase === 'tracking';
-  const { sortedGoalValues, allCheckpointsHit, goalProgress } = useMemo(() => {
-    const current = goal ? (goal.type === 'reps' ? live.reps : live.holdSeconds) : 0;
-    const sorted = goal ? [...goal.values].sort((a, b) => a - b) : [];
-    const next = sorted.find((v: number) => !hitCheckpoints.includes(v));
-    const allHit = sorted.length > 0 && next == null;
-    const progress = goal ? (next != null ? Math.min(1, current / next) : 1) : undefined;
-    return { sortedGoalValues: sorted, allCheckpointsHit: allHit, goalProgress: progress };
-  }, [live.reps, live.holdSeconds, goal, hitCheckpoints]);
+  const goalCurrent = goal ? (goal.type === 'reps' ? live.reps : live.holdSeconds) : 0;
+  const sortedGoalValues = goal ? [...goal.values].sort((a, b) => a - b) : [];
+  const nextCheckpoint = sortedGoalValues.find((v) => !hitCheckpoints.includes(v));
+  const allCheckpointsHit = sortedGoalValues.length > 0 && nextCheckpoint == null;
+  const goalProgress = goal ? (nextCheckpoint != null ? Math.min(1, goalCurrent / nextCheckpoint) : 1) : undefined;
 
   return (
     <View style={styles.root}>
@@ -384,16 +378,9 @@ export function ExerciseTracker({
           </Text>
         </Pressable>
         {camError ? (
-          <View style={[styles.errBox, { backgroundColor: t.surface.raised, borderColor: t.ink.hairline }]}>
-            <Ionicons name="wifi-outline" size={24} color={t.ink.secondary} />
-            <Text variant="body" style={{ textAlign: 'center', color: t.ink.primary, marginTop: Spacing.xs }}>
-              Connect to Wi-Fi once
-            </Text>
-            <Text variant="caption" tone="secondary" style={{ textAlign: 'center', marginTop: 4 }}>
-              The body tracker needs to download once (~4 MB) before your first workout.
-              After that, everything works offline.
-            </Text>
-          </View>
+          <Text variant="caption" tone="secondary" style={styles.errText}>
+            Camera unavailable ({camError}). Showing demo.
+          </Text>
         ) : null}
       </View>
 
@@ -581,7 +568,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     backgroundColor: 'rgba(0,0,0,0.45)',
   },
-  errBox: { marginHorizontal: Spacing.lg, padding: Spacing.lg, borderRadius: Radius.md, borderWidth: 1, alignItems: 'center', gap: Spacing.xs },
+  errText: { paddingHorizontal: Spacing.lg, textAlign: 'center' },
   center: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, alignItems: 'center', justifyContent: 'center' },
   gate: { alignItems: 'center', gap: Spacing.sm, paddingHorizontal: Spacing.xl },
   count: { fontSize: 120, fontWeight: '800', color: '#FFFFFF', fontVariant: ['tabular-nums'] },
