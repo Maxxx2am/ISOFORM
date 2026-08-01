@@ -12,7 +12,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.maxxxdev.isoform",
-      "buildNumber": "25",
+      "buildNumber": "26",
       "infoPlist": {
         "UIViewControllerBasedStatusBarAppearance": false,
         "NSCameraUsageDescription": "ISOFORM uses the camera to track your body and check your exercise form on-device. Nothing leaves your phone.",
@@ -31,8 +31,7 @@
       "adaptiveIcon": {
         "backgroundColor": "#000000",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
-        "backgroundImage": "./assets/images/android-icon-background.png",
-        "monochromeImage": "./assets/images/android-icon-monochrome.png"
+        "backgroundImage": "./assets/images/android-icon-background.png"
       },
       "predictiveBackGestureEnabled": false
     },
