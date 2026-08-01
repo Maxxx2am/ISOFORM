@@ -1,17 +1,19 @@
 import { router, useLocalSearchParams } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { View } from 'react-native';
 
 import { BackButton } from '@/components/BackButton';
 import { ExerciseTracker, type ExerciseTrackerResult } from '@/components/ExerciseTracker';
+import { ExerciseSetupTip } from '@/components/ExerciseSetupTip';
 import { LockBadge } from '@/components/LockBadge';
 import { Screen } from '@/components/Screen';
 import { Text } from '@/components/Text';
 import { getExercise } from '@/exercises/data';
 import { bestSessionFor } from '@/lib/insights';
 import { makeId } from '@/lib/format';
-import { listSessions, saveSession } from '@/storage/db';
+import { listSessionsForExercise } from '@/storage/db';
 import { FREE_EXERCISES, useSubscription } from '@/store/subscription';
+import { useSettings } from '@/store/settings';
 import { useWorkoutDraft } from '@/store/workoutDraft';
 import { useWorkoutRunStore, type WorkoutRunStep } from '@/store/workoutRun';
 import { useWorkouts, type SavedWorkout } from '@/store/workouts';
@@ -22,10 +24,6 @@ const DRAFT_ID = '__draft__';
 export default function WorkoutRunScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const savedWorkout = useWorkouts((s) => s.workouts.find((w) => w.id === id));
-  // Ad-hoc "Start workout" runs never get saved — captured ONCE on mount from
-  // the in-memory draft store so the workout doesn't vanish mid-run if
-  // something else touches the draft (e.g. starting a second one from
-  // another tab), and cleared right away so it can't be accidentally re-run.
   const [draftWorkout] = useState<SavedWorkout | undefined>(() => {
     if (id !== DRAFT_ID) return undefined;
     const d = useWorkoutDraft.getState().draft;
@@ -38,9 +36,28 @@ export default function WorkoutRunScreen() {
   const hasAllAccess = useSubscription((s) => s.hasAllAccess);
   const isExerciseUnlocked = (slug: string) => hasAllAccess || FREE_EXERCISES.includes(slug);
   const setFinished = useWorkoutRunStore((s) => s.setFinished);
+  const dismissedTips = useSettings((s) => s.dismissedSetupTips);
+  const dismissSetupTip = useSettings((s) => s.dismissSetupTip);
 
   const [stepIndex, setStepIndex] = useState(0);
   const [finishedSteps, setFinishedSteps] = useState<WorkoutRunStep[]>([]);
+  const [showTip, setShowTip] = useState(true);
+  const tipStepRef = useRef(0);
+
+  useEffect(() => {
+    if (stepIndex !== tipStepRef.current) {
+      tipStepRef.current = stepIndex;
+      setShowTip(true);
+    }
+  }, [stepIndex]);
+
+  const currentExercise = workout?.steps[stepIndex] ? getExercise(workout.steps[stepIndex].exerciseSlug) : undefined;
+  const tipDismissed = currentExercise ? dismissedTips[currentExercise.slug] : false;
+
+  const handleTipContinue = useCallback((dontShowAgain: boolean) => {
+    if (dontShowAgain && currentExercise) dismissSetupTip(currentExercise.slug);
+    setShowTip(false);
+  }, [currentExercise, dismissSetupTip]);
 
   const onStepFinish = useCallback(
     async (result: ExerciseTrackerResult) => {
@@ -49,27 +66,40 @@ export default function WorkoutRunScreen() {
       const exercise = getExercise(step.exerciseSlug);
       if (!exercise) return;
 
-      const priorBest = bestSessionFor(exercise.id, await listSessions().catch(() => []));
+      const priorBest = bestSessionFor(exercise.id, await listSessionsForExercise(exercise.id).catch(() => []));
       const previousBest = priorBest ? (priorBest.reps > 0 ? priorBest.reps : priorBest.holdSeconds) : null;
 
       const sessionId = makeId();
-      // Awaited — the NEXT step's previousBest lookup runs moments later and
-      // must never race ahead of this write finishing.
-      await saveSession(sessionId, exercise.name, Date.now(), result.summary, result.videoUri, result.timeline, result.videoAspect).catch(() => {});
-
+      const createdAt = Date.now();
       const nextFinished = [
         ...finishedSteps,
-        { exerciseName: exercise.name, exerciseSlug: exercise.slug, summary: result.summary, goal: step.goal, previousBest },
+        {
+          exerciseName: exercise.name,
+          exerciseSlug: exercise.slug,
+          summary: result.summary,
+          goal: step.goal,
+          previousBest,
+          id: sessionId,
+          createdAt,
+          videoUri: result.videoUri,
+          timeline: result.timeline,
+          videoAspect: result.videoAspect,
+        },
       ];
       if (stepIndex + 1 >= workout.steps.length) {
-        setFinished({ workoutName: workout.name, steps: nextFinished });
+        setFinished({
+          workoutName: workout.name,
+          steps: nextFinished,
+          isDraft: id === DRAFT_ID,
+          sourceSteps: workout.steps,
+        });
         router.replace('/workout/summary');
       } else {
         setFinishedSteps(nextFinished);
         setStepIndex(stepIndex + 1);
       }
     },
-    [workout, stepIndex, finishedSteps, setFinished],
+    [workout, stepIndex, finishedSteps, setFinished, id],
   );
 
   if (!workout) {
@@ -111,6 +141,10 @@ export default function WorkoutRunScreen() {
         <Text>Exercise not found.</Text>
       </Screen>
     );
+  }
+
+  if (showTip && !tipDismissed) {
+    return <ExerciseSetupTip exercise={exercise} onContinue={handleTipContinue} />;
   }
 
   const isLast = stepIndex + 1 >= workout.steps.length;

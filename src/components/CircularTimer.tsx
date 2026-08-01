@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { StyleSheet, View } from 'react-native';
 import Svg, { Circle } from 'react-native-svg';
 
@@ -17,14 +18,17 @@ type CircularTimerProps = {
   strokeWidth?: number;
 };
 
-/** Distraction-free circular timer. Thin isometric ring, accent progress. */
-export function CircularTimer({
+/** Distraction-free circular timer. Thin isometric ring, accent progress.
+ * Memoized — re-rendered every camera frame by ExerciseTracker via its parent
+ * re-render, but its own inputs (label/progress/ringColor) don't change on
+ * every one of those frames. */
+export const CircularTimer = memo(function CircularTimer({
   label,
   sublabel,
   progress = 1,
   ringColor,
-  size = 260,
-  strokeWidth = 10,
+  size = 200,
+  strokeWidth = 8,
 }: CircularTimerProps) {
   const t = useTheme();
   const radius = (size - strokeWidth) / 2;
@@ -72,7 +76,7 @@ export function CircularTimer({
       </View>
     </View>
   );
-}
+});
 
 const styles = StyleSheet.create({
   center: { alignItems: 'center', justifyContent: 'center' },

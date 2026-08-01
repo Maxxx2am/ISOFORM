@@ -1,24 +1,16 @@
-import { useState } from 'react';
-import { StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
+import { memo, useEffect, useRef, useState } from 'react';
+import { Animated, Easing, StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
 
-import { Feedback } from '@/theme/palette';
+import { alpha, Feedback, Surface } from '@/theme/palette';
 
-// The bottom "reached depth" zone and top "reached lockout" zone each
-// occupy 25% of the bar — the middle 50% is the transition zone. A rep
-// counts when you descend into the bottom green, then rise into the top
-// green. The zones are always this same fixed proportion regardless of the
-// exercise's actual angle range (the marker warps to match).
-const VISUAL_DOWN = 0.25;
-const VISUAL_UP = 0.75;
+// The bottom "reached depth" zone and top "reached lockout" zone are always
+// drawn at this same fixed size — a glute bridge's down/up thresholds are
+// nowhere near a push-up's numerically, but the two green bands must still
+// look identical, the same way they do on a push-up.
+const VISUAL_DOWN = 0.2;
+const VISUAL_UP = 0.8;
 
-// Fallback before the real height is measured (matches styles.gauge.height) —
-// callers like the review-screen replay override the track's height via the
-// `style` prop to fit a shorter video box, so the containment math below
-// MEASURES the actual rendered height instead of assuming this constant;
-// using the constant unconditionally was itself a bug (the marker's
-// clamp math would still assume a tall 240px track while rendering inside a
-// much shorter overridden box, letting it float above the visible bar).
-const DEFAULT_GAUGE_HEIGHT = 240;
+// Fallback before the real height is measured (matches styles.gauge.height).
 const MARKER_HEIGHT = 30;
 // The track is a full pill (borderRadius == half its width), so its very
 // top/bottom aren't flat — they're semicircular caps. Letting the marker's
@@ -37,7 +29,10 @@ const CAP_CLEARANCE = 10;
  * so it's calibrated correctly for any move. The two zones are where a rep
  * counts: descend into the LOWER one, extend into the UPPER one.
  */
-export function RepGauge({
+// Memoized — re-rendered every camera frame by ExerciseTracker, but down/up
+// are derived once per exercise (not per-frame) so this mostly bails out on
+// unchanged props except for the marker itself.
+export const RepGauge = memo(function RepGauge({
   marker,
   down,
   up,
@@ -51,9 +46,14 @@ export function RepGauge({
   /** Override the default full-screen (right-edge, vertically centered) placement. */
   style?: StyleProp<ViewStyle>;
 }) {
-  const [trackHeight, setTrackHeight] = useState(DEFAULT_GAUGE_HEIGHT);
+  const [trackHeight, setTrackHeight] = useState(0);
 
-  if (!visible) return null;
+  // Don't render the marker capsule until layout gives us the real track
+  // height — on the very first frame trackHeight is 0 (was DEFAULT_GAUGE_HEIGHT
+  // = 240), so the marker position math would produce a value for a bar that's
+  // a different size than what's actually on screen (e.g. the review screen's
+  // shorter overridden bar). One-frame visual glitch, but noticeable.
+  const ready = trackHeight > 0;
 
   const inZone = marker <= down || marker >= up;
 
@@ -73,8 +73,29 @@ export function RepGauge({
   // track's own edges — this is what keeps it "in the bar" at 0% and 100%.
   const half = MARKER_HEIGHT / 2;
   const inset = half + CAP_CLEARANCE;
-  const centerPx = Math.min(trackHeight - inset, Math.max(inset, visualMarker * trackHeight));
+  const centerPx = ready
+    ? Math.min(trackHeight - inset, Math.max(inset, visualMarker * trackHeight))
+    : 0;
   const markerBottomPx = centerPx - half;
+
+  // Animated on the native UI thread (useNativeDriver), not the JS thread —
+  // a brief JS-thread stall (starting text-to-speech is the confirmed case;
+  // see speakCue's own comment) used to show up as the marker instantly
+  // snapping to wherever the next frame said, which read as a glitch/freeze.
+  // Anchored at the track's bottom edge and moved with translateY instead of
+  // the `bottom` layout property specifically because `bottom` can't run on
+  // the native driver — this can.
+  const animatedY = useRef(new Animated.Value(-markerBottomPx)).current;
+  useEffect(() => {
+    Animated.timing(animatedY, {
+      toValue: -markerBottomPx,
+      duration: 90,
+      easing: Easing.out(Easing.quad),
+      useNativeDriver: true,
+    }).start();
+  }, [animatedY, markerBottomPx]);
+
+  if (!visible) return null;
 
   return (
     <View
@@ -99,7 +120,7 @@ export function RepGauge({
             bottom: 0,
             height: `${VISUAL_DOWN * 100}%`,
             borderTopWidth: 2,
-            borderTopColor: 'rgba(48,209,88,0.85)',
+            borderTopColor: alpha(Feedback.good, 0.85),
             borderBottomLeftRadius: 12,
             borderBottomRightRadius: 12,
           },
@@ -114,29 +135,32 @@ export function RepGauge({
             bottom: `${VISUAL_UP * 100}%`,
             height: `${(1 - VISUAL_UP) * 100}%`,
             borderBottomWidth: 2,
-            borderBottomColor: 'rgba(48,209,88,0.85)',
+            borderBottomColor: alpha(Feedback.good, 0.85),
             borderTopLeftRadius: 12,
             borderTopRightRadius: 12,
           },
         ]}
       />
 
-      {/* Live motion marker capsule */}
-      <View
-        style={[
-          styles.marker,
-          {
-            bottom: markerBottomPx,
-            borderColor: inZone ? Feedback.good : '#FFFFFF',
-            backgroundColor: inZone ? 'rgba(48,209,88,0.25)' : 'rgba(255,255,255,0.15)',
-          },
-        ]}
-      >
-        <View style={[styles.markerCenterLine, { backgroundColor: inZone ? Feedback.good : '#FFFFFF' }]} />
-      </View>
+      {/* Live motion marker capsule — hidden until layout measures the track */}
+      {ready ? (
+        <Animated.View
+          style={[
+            styles.marker,
+            {
+              bottom: 0,
+              transform: [{ translateY: animatedY }],
+              borderColor: inZone ? Feedback.good : '#FFFFFF',
+              backgroundColor: inZone ? alpha(Feedback.good, 0.25) : alpha('#FFFFFF', 0.15),
+            },
+          ]}
+        >
+          <View style={[styles.markerCenterLine, { backgroundColor: inZone ? Feedback.good : '#FFFFFF' }]} />
+        </Animated.View>
+      ) : null}
     </View>
   );
-}
+});
 
 const styles = StyleSheet.create({
   gauge: {
@@ -147,9 +171,9 @@ const styles = StyleSheet.create({
     height: 240,
     width: 28,
     borderRadius: 14,
-    backgroundColor: 'rgba(20,20,24,0.65)',
+    backgroundColor: alpha(Surface.raised, 0.65),
     borderWidth: 1.5,
-    borderColor: 'rgba(255,255,255,0.15)',
+    borderColor: alpha('#FFFFFF', 0.15),
   },
   ticksContainer: {
     position: 'absolute',
@@ -170,7 +194,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: 0,
     right: 0,
-    backgroundColor: 'rgba(48,209,88,0.18)',
+    backgroundColor: alpha(Feedback.good, 0.18),
   },
   marker: {
     position: 'absolute',

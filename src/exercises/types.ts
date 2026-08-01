@@ -118,6 +118,11 @@ export type Exercise = {
   /** Compute the named angles this exercise reasons about, for one frame. */
   angles: (lms: Landmark[]) => Record<string, number | null>;
   rep?: RepConfig;
+  /** Use AdaptiveRepCounter (auto-calibrates from the first few reps) instead
+   * of the fixed-threshold RepCounter — for moves where achievable range of
+   * motion varies a lot person-to-person (e.g. push-up hand width/limb
+   * length). `rep.downBelow/upAbove` still seed the calibration. */
+  adaptiveRep?: boolean;
   hold?: HoldConfig;
   /** While false nothing counts; splits reps/holds into attempts. */
   gate?: AttemptGate;

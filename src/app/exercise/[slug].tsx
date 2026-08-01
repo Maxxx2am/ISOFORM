@@ -1,20 +1,27 @@
 import { Ionicons } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Alert, Pressable, StyleSheet, View } from 'react-native';
+import Svg, { Circle, Defs, RadialGradient, Stop } from 'react-native-svg';
 
 import { BackButton } from '@/components/BackButton';
 import { GoalPickerSheet } from '@/components/GoalPicker';
+import { ListGroup, ListRow } from '@/components/ListGroup';
 import { LockBadge } from '@/components/LockBadge';
+import { MuscleDiagrams } from '@/components/MuscleDiagrams';
+import { PlanRows, StreakHook } from '@/components/PaywallOffer';
 import { PrimaryButton } from '@/components/PrimaryButton';
 import { Screen } from '@/components/Screen';
 import { Text } from '@/components/Text';
 import { getExercise, getNextProgression } from '@/exercises/data';
+import { useActiveExercises } from '@/exercises/registry';
 import { bestSessionFor } from '@/lib/insights';
+import { useFavorites } from '@/store/favorites';
 import { FREE_EXERCISES, useSubscription } from '@/store/subscription';
 import { useWorkouts } from '@/store/workouts';
-import { listSessions, type SessionRecord } from '@/storage/db';
+import { listSessionsForExercise, type SessionRecord } from '@/storage/db';
 import { Feedback, Radius, Spacing } from '@/theme/palette';
 import { useTheme } from '@/theme/useTheme';
 
@@ -24,15 +31,20 @@ export default function ExerciseDetailScreen() {
   const exercise = getExercise(slug);
   const [best, setBest] = useState<SessionRecord | null>(null);
   const [goalModalOpen, setGoalModalOpen] = useState(false);
+  const [showAllTips, setShowAllTips] = useState(false);
+  const [guideOpen, setGuideOpen] = useState(false);
   const [goal, setGoal] = useState<{ type: 'reps' | 'hold'; values: number[] } | undefined>(undefined);
   const hasAllAccess = useSubscription((s) => s.hasAllAccess);
   const isExerciseUnlocked = (s: string) => hasAllAccess || FREE_EXERCISES.includes(s);
+  const exercises = useActiveExercises();
+  const favorites = useFavorites();
+  const isFav = favorites.isFavorite(slug);
   const goalPresets = useWorkouts((s) => s.goalPresets);
   const addGoalPreset = useWorkouts((s) => s.addGoalPreset);
 
   useEffect(() => {
     if (!exercise) return;
-    listSessions()
+    listSessionsForExercise(exercise.id)
       .then((rows) => setBest(bestSessionFor(exercise.id, rows)))
       .catch(() => {});
   }, [exercise]);
@@ -56,15 +68,8 @@ export default function ExerciseDetailScreen() {
           <Text variant="label" tone="muted" style={{ letterSpacing: 2 }}>Locked</Text>
           <Text variant="heading" style={{ textAlign: 'center', marginTop: -Spacing.sm }}>{exercise.name}</Text>
           <Text tone="secondary" style={{ textAlign: 'center' }}>Unlock this exercise or get All Access.</Text>
-          <Pressable style={[styles.lockedBuyBtn, { backgroundColor: t.surface.raised, borderColor: t.ink.hairline }]}>
-            <Text variant="heading">{exercise.name}</Text>
-            <Text variant="heading" tone="accent">$1/mo</Text>
-          </Pressable>
-          <Pressable style={[styles.lockedBuyBtn, { backgroundColor: Feedback.good, borderColor: Feedback.good }]}>
-            <Text variant="heading" style={{ color: '#000' }}>All Access</Text>
-            <Text variant="heading" style={{ color: '#000' }}>$5/mo</Text>
-          </Pressable>
-          <Text variant="caption" tone="muted" style={{ textAlign: 'center', marginTop: Spacing.xs }}>Subscriptions aren&apos;t live yet — check back soon.</Text>
+          <StreakHook active />
+          <PlanRows exerciseName={exercise.name} lockedCount={Math.max(0, exercises.length - FREE_EXERCISES.length)} />
         </View>
       </Screen>
     );
@@ -74,34 +79,32 @@ export default function ExerciseDetailScreen() {
   const bestMetric = best ? (best.reps > 0 ? `${best.reps} reps` : `${best.holdSeconds}s hold`) : null;
   const improvements = best?.cues.slice(0, 3) ?? [];
 
-  const pickVideo = async () => {
-    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!perm.granted) {
-      Alert.alert('Permission needed', 'Allow photo library access in Settings to pick a video.');
-      return;
-    }
-    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['videos'], quality: 1 });
-    if (result.canceled || !result.assets?.[0]?.uri) return;
-    router.push({ pathname: '/workout/analyze', params: { slug: exercise.slug, uri: result.assets[0].uri } });
-  };
-
-  const onAnalyzeVideo = () => {
-    Alert.alert(
-      'Filming angle matters',
-      `${exercise.setup ?? 'Film so your whole body is in frame.'}\n\nIf the video doesn't match this angle, tracking can glitch or miss reps — the same way it would live.`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Choose video', onPress: pickVideo },
-      ],
-    );
-  };
-
   const startTracking = () => {
     router.push({
       pathname: '/workout/active',
       params: goal
         ? { slug: exercise.slug, goalType: goal.type, goalValues: goal.values.join(',') }
         : { slug: exercise.slug },
+    });
+  };
+
+  const importFromVideo = async () => {
+    const perm = await ImagePicker.getMediaLibraryPermissionsAsync();
+    if (!perm.granted) {
+      const req = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!req.granted) {
+        Alert.alert('Permission needed', 'Allow access to your photo library to import videos.');
+        return;
+      }
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['videos'],
+      quality: 1,
+    });
+    if (result.canceled || !result.assets?.[0]) return;
+    router.push({
+      pathname: '/workout/import',
+      params: { slug: exercise.slug, videoUri: result.assets[0].uri },
     });
   };
 
@@ -117,22 +120,37 @@ export default function ExerciseDetailScreen() {
           </Text>
           <Text variant="title">{exercise.name}</Text>
         </View>
+        <Pressable
+          hitSlop={8}
+          onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+            favorites.toggle(slug);
+          }}
+          style={({ pressed }) => [
+            styles.favBtn,
+            { backgroundColor: isFav ? `${t.accent.color}18` : t.surface.sunken },
+            pressed && { opacity: 0.7 },
+          ]}
+        >
+          <Ionicons
+            name={isFav ? 'star' : 'star-outline'}
+            size={20}
+            color={isFav ? t.accent.color : t.ink.secondary}
+          />
+        </Pressable>
       </View>
       <Text variant="body" tone="secondary" style={{ marginTop: Spacing.xs }}>
         {exercise.summary}
       </Text>
 
       {exercise.setup ? (
-        <View style={[styles.setup, { borderColor: t.ink.hairline, backgroundColor: t.surface.raised }]}>
-          <Ionicons name="camera-outline" size={18} color={t.accent.color} />
-          <View style={{ flex: 1, gap: 2 }}>
-            <Text variant="label" tone="muted">
-              Camera setup
-            </Text>
-            <Text variant="caption" tone="secondary">
-              {exercise.setup}
-            </Text>
-          </View>
+        // Pure info, not an action — dashed + no fill so it reads as a note,
+        // not one more identical card competing with the buttons below it.
+        <View style={[styles.hint, { borderColor: t.ink.hairline }]}>
+          <Ionicons name="camera-outline" size={16} color={t.ink.muted} />
+          <Text variant="caption" tone="secondary" style={{ flex: 1 }}>
+            {exercise.setup}
+          </Text>
         </View>
       ) : null}
 
@@ -140,23 +158,16 @@ export default function ExerciseDetailScreen() {
         <>
           <PrimaryButton
             label="Train with camera"
-            icon={<Ionicons name="videocam" size={20} color={t.surface.base} />}
+            variant="hero"
+            icon={<Ionicons name="videocam" size={24} color={t.accent.onColor} />}
             style={{ marginTop: Spacing.md }}
             onPress={startTracking}
           />
-          <Pressable
-            onPress={onAnalyzeVideo}
-            style={({ pressed }) => [
-              styles.analyzeBtn,
-              { borderColor: t.ink.hairline, backgroundColor: t.surface.raised, opacity: pressed ? 0.85 : 1 },
-            ]}
-          >
-            <Ionicons name="film-outline" size={18} color={t.ink.secondary} />
-            <Text variant="body" tone="secondary">Analyze a video from your phone</Text>
-          </Pressable>
-          {/* Most people just want to train — this stays a small, easy-to-ignore
-              row instead of a question that blocks "Train with camera". */}
-          <Pressable onPress={() => setGoalModalOpen(true)} style={styles.goalRow} hitSlop={4}>
+          {/* A plain ghost row, not a second bordered pill — "Train with
+              camera" is the one real decision on this screen; the checkpoints
+              row below it is a quiet, easy-to-ignore alternative, not a
+              competing CTA. */}
+          <Pressable onPress={() => setGoalModalOpen(true)} style={styles.ghostRow} hitSlop={4}>
             <Ionicons name="flag-outline" size={14} color={t.ink.muted} />
             <Text variant="caption" tone="secondary" style={{ flex: 1 }}>
               {goal ? `Goal: ${goal.values.map((v) => `${v}${goal.type === 'hold' ? 's' : ''}`).join(', ')}` : 'Add checkpoints (optional)'}
@@ -169,27 +180,47 @@ export default function ExerciseDetailScreen() {
               <Ionicons name="chevron-forward" size={14} color={t.ink.muted} />
             )}
           </Pressable>
+          <PrimaryButton
+            label="Import from video"
+            variant="ghost"
+            icon={<Ionicons name="cloud-upload-outline" size={20} color={t.ink.secondary} />}
+            style={{ marginTop: Spacing.sm }}
+            onPress={importFromVideo}
+          />
         </>
       ) : (
-        <View style={[styles.soon, { borderColor: t.ink.hairline, backgroundColor: t.surface.raised }]}>
-          <Ionicons name="time-outline" size={18} color={t.ink.secondary} />
+        <View style={[styles.hint, { borderColor: t.ink.hairline }]}>
+          <Ionicons name="time-outline" size={16} color={t.ink.muted} />
           <Text tone="secondary" variant="caption" style={{ flex: 1 }}>
             Live camera coaching for this move is coming soon — learn the form below.
           </Text>
         </View>
       )}
 
-      {/* Your best run */}
+      {/* Your best run — the one genuine achievement moment on this screen.
+          Tinted fill with a subtle radial gradient glow behind it to make it
+          feel like a lit highlight, not just another bordered card. */}
       {best && bestMetric ? (
         <Pressable
           onPress={() => router.push({ pathname: '/workout/review/[id]', params: { id: best.id } })}
           style={({ pressed }) => [
             styles.bestCard,
-            { backgroundColor: t.surface.raised, borderColor: t.accent.color, opacity: pressed ? 0.85 : 1 },
+            { backgroundColor: `${t.accent.color}12`, borderColor: `${t.accent.color}44`, opacity: pressed ? 0.85 : 1 },
           ]}
         >
-          <View style={styles.bestIcon}>
-            <Ionicons name="play" size={18} color="#000000" />
+          <View style={styles.bestGlowWrap}>
+            <Svg width={240} height={140} style={{ position: 'absolute' }}>
+              <Defs>
+                <RadialGradient id="bestGlow" cx="30%" cy="50%" r="60%">
+                  <Stop offset="0%" stopColor={t.accent.color} stopOpacity={0.12} />
+                  <Stop offset="100%" stopColor={t.accent.color} stopOpacity={0} />
+                </RadialGradient>
+              </Defs>
+              <Circle cx={80} cy={70} r={120} fill="url(#bestGlow)" />
+            </Svg>
+          </View>
+          <View style={[styles.bestIcon, { backgroundColor: t.accent.color }]}>
+            <Ionicons name="play" size={18} color={t.accent.onColor} />
           </View>
           <View style={{ flex: 1 }}>
             <Text variant="label" tone="muted">
@@ -201,64 +232,103 @@ export default function ExerciseDetailScreen() {
         </Pressable>
       ) : null}
 
-      <Section title="How to">
-        {exercise.howTo.map((step, i) => (
-          <View key={i} style={styles.step}>
-            <View style={[styles.num, { borderColor: t.accent.color }]}>
-              <Text variant="caption" tone="accent">
-                {i + 1}
-              </Text>
-            </View>
-            <Text variant="body" style={{ flex: 1 }}>
-              {step}
-            </Text>
+      {/* How-to/tips are above the muscle diagrams so the body map stays
+          at the bottom of the page when the guide is open. */}
+      <View style={{ marginTop: Spacing.lg }}>
+        <ListGroup>
+              <ListRow
+                title="How to do it"
+                subtitle={`${exercise.howTo.length} steps · ${exercise.cues.length} tips`}
+                icon={<Ionicons name="book-outline" size={19} color={t.accent.color} />}
+                right={<Ionicons name={guideOpen ? 'chevron-up' : 'chevron-down'} size={18} color={t.ink.muted} />}
+                onPress={() => setGuideOpen((v) => !v)}
+                chevron={false}
+              />
+            </ListGroup>
           </View>
-        ))}
-      </Section>
 
-      <Section title="Coach's tips">
-        {exercise.cues.map((cue, i) => (
-          <View key={i} style={styles.bullet}>
-            <Ionicons name="checkmark-circle" size={18} color={t.accent.color} />
-            <Text variant="body" tone="secondary" style={{ flex: 1 }}>
-              {cue}
-            </Text>
+          {guideOpen ? (
+        <>
+          <Section title="Steps">
+            {exercise.howTo.map((step, i) => (
+              <View key={i} style={styles.step}>
+                <View style={[styles.num, { borderColor: t.accent.color }]}>
+                  <Text variant="caption" tone="accent">
+                    {i + 1}
+                  </Text>
+                </View>
+                <Text variant="body" style={{ flex: 1 }}>
+                  {step}
+                </Text>
+              </View>
+            ))}
+          </Section>
+
+          <Section title="Coach's tips">
+            {(showAllTips ? exercise.cues : exercise.cues.slice(0, 4)).map((cue, i) => (
+              <View key={i} style={styles.bullet}>
+                <Ionicons name="checkmark-circle" size={18} color={t.accent.color} />
+                <Text variant="body" tone="secondary" style={{ flex: 1 }}>
+                  {cue}
+                </Text>
+              </View>
+            ))}
+            {!showAllTips && exercise.cues.length > 4 ? (
+              <Pressable
+                onPress={() => setShowAllTips(true)}
+                style={({ pressed }) => [styles.showMoreRow, pressed && { backgroundColor: `${t.accent.color}10` }]}
+                accessibilityRole="button"
+              >
+                <Text variant="body" tone="accent">
+                  Show {exercise.cues.length - 4} more tip{exercise.cues.length - 4 === 1 ? '' : 's'}
+                </Text>
+                <Ionicons name="chevron-down" size={16} color={t.accent.color} />
+              </Pressable>
+            ) : null}
+          </Section>
+
+          {improvements.length > 0 ? (
+            <Section title="What to work on">
+              {improvements.map((c) => (
+                <View key={c.ruleId} style={styles.bullet}>
+                  <Ionicons name="alert-circle" size={18} color={Feedback.warn} />
+                  <Text variant="body" tone="secondary" style={{ flex: 1 }}>
+                    {c.cue} — seen in your last best set.
+                  </Text>
+                </View>
+              ))}
+            </Section>
+          ) : null}
+        </>
+      ) : null}
+
+      {exercise.muscles.length > 0 ? (
+        <View style={{ marginTop: 0, alignItems: 'center' }}>
+          <MuscleDiagrams muscles={exercise.muscles} />
+          <View style={{ flexDirection: 'row', gap: Spacing.xs, flexWrap: 'wrap', justifyContent: 'center', marginTop: Spacing.xs }}>
+            {exercise.muscles.map((m) => (
+              <View key={m} style={{ paddingHorizontal: 10, paddingVertical: 3, borderRadius: 999, backgroundColor: `${t.accent.color}22` }}>
+                <Text variant="caption" tone="accent">{m}</Text>
+              </View>
+            ))}
           </View>
-        ))}
-      </Section>
-
-      {improvements.length > 0 ? (
-        <Section title="What to work on">
-          {improvements.map((c) => (
-            <View key={c.ruleId} style={styles.bullet}>
-              <Ionicons name="alert-circle" size={18} color={Feedback.warn} />
-              <Text variant="body" tone="secondary" style={{ flex: 1 }}>
-                {c.cue} — seen in your last best set.
-              </Text>
-            </View>
-          ))}
-        </Section>
+        </View>
       ) : null}
 
       {next ? (
-        <Section title="Next progression">
-          <Pressable
-            onPress={() => router.push({ pathname: '/exercise/[slug]', params: { slug: next.slug } })}
-            style={({ pressed }) => [
-              styles.nextCard,
-              { backgroundColor: t.surface.raised, borderColor: t.ink.hairline, opacity: pressed ? 0.85 : 1 },
-            ]}
-          >
-            <Ionicons name="trending-up" size={20} color={t.accent.color} />
-            <View style={{ flex: 1 }}>
-              <Text variant="heading">{next.name}</Text>
-              <Text variant="caption" tone="secondary" numberOfLines={1}>
-                {next.summary}
-              </Text>
-            </View>
-            <Ionicons name="chevron-forward" size={20} color={t.ink.muted} />
-          </Pressable>
-        </Section>
+        <View style={{ marginTop: Spacing.lg }}>
+          <Text variant="label" tone="muted" style={{ marginBottom: Spacing.sm, marginLeft: 4 }}>
+            Next progression
+          </Text>
+          <ListGroup>
+            <ListRow
+              title={next.name}
+              subtitle={next.summary}
+              icon={<Ionicons name="trending-up" size={19} color={t.accent.color} />}
+              onPress={() => router.push({ pathname: '/exercise/[slug]', params: { slug: next.slug } })}
+            />
+          </ListGroup>
+        </View>
       ) : null}
 
       <GoalPickerSheet
@@ -296,7 +366,10 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 
 const styles = StyleSheet.create({
   headerRow: { paddingTop: Spacing.md, flexDirection: 'row', alignItems: 'center', gap: Spacing.md },
-  setup: {
+  favBtn: { width: 40, height: 40, borderRadius: Radius.pill, alignItems: 'center', justifyContent: 'center' },
+  // Dashed + no fill so a plain info note doesn't compete visually with the
+  // real action cards/buttons around it (camera setup hint, "coming soon").
+  hint: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing.sm,
@@ -304,33 +377,16 @@ const styles = StyleSheet.create({
     padding: Spacing.md,
     borderRadius: Radius.md,
     borderWidth: 1,
+    borderStyle: 'dashed',
   },
-  analyzeBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: Spacing.sm,
-    marginTop: Spacing.sm,
-    padding: Spacing.md,
-    borderRadius: Radius.md,
-    borderWidth: 1,
-  },
-  goalRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.xs,
-    marginTop: Spacing.sm,
-    paddingHorizontal: Spacing.xs,
-    paddingVertical: 4,
-  },
-  soon: {
+  // No border/background at all — a quiet, easy-to-ignore alternative row
+  // (add checkpoints), not a second CTA next to the hero button.
+  ghostRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing.sm,
-    marginTop: Spacing.md,
-    padding: Spacing.md,
-    borderRadius: Radius.md,
-    borderWidth: 1,
+    marginTop: Spacing.sm,
+    paddingVertical: Spacing.xs,
   },
   bestCard: {
     flexDirection: 'row',
@@ -340,34 +396,18 @@ const styles = StyleSheet.create({
     padding: Spacing.md,
     borderRadius: Radius.md,
     borderWidth: 1,
+    overflow: 'hidden',
   },
+  bestGlowWrap: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
   bestIcon: {
     width: 36,
     height: 36,
     borderRadius: Radius.pill,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#FFFFFF',
   },
   step: { flexDirection: 'row', alignItems: 'flex-start', gap: Spacing.md },
   num: { width: 26, height: 26, borderRadius: Radius.pill, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
   bullet: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
-  nextCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.md,
-    padding: Spacing.md,
-    borderRadius: Radius.md,
-    borderWidth: 1,
-  },
-  lockedBuyBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    width: '100%',
-    padding: Spacing.md,
-    borderRadius: Radius.md,
-    borderWidth: 1,
-    gap: Spacing.sm,
-    justifyContent: 'space-between',
-  },
+  showMoreRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 4, paddingVertical: 14, paddingHorizontal: 16, borderRadius: Radius.md },
 });

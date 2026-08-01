@@ -43,13 +43,6 @@ example
 /android
 
 # ISO-FORM
-assets/models/*.tflite
-assets/models/*.task
 dist-check/
 cfg.tmp.json
 expo-server.log
-
-# tooling
-.goopspec/
-.opencode/
-undefined/

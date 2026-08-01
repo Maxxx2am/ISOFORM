@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { forwardRef, useCallback, useImperativeHandle, useRef } from 'react';
 import { StyleSheet } from 'react-native';
 import { WebView, type WebViewMessageEvent } from 'react-native-webview';

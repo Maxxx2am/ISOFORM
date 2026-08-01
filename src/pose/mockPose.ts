@@ -41,7 +41,7 @@ export function mockSquatFrame(t: number, s: number): PoseFrame {
   landmarks[L.LeftFootIndex] = lm(cx - 0.12, 0.96);
   landmarks[L.RightFootIndex] = lm(cx + 0.12, 0.96);
 
-  return { landmarks, t, source: 'mediapipe' };
+  return { landmarks, t, source: 'mock' };
 }
 
 /** Phase in 0..1 following a smooth squat cadence of `periodMs` per rep. */

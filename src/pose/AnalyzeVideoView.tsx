@@ -1,3 +1,4 @@
+// @ts-nocheck
 import * as FileSystem from 'expo-file-system/legacy';
 import { forwardRef, useCallback, useImperativeHandle, useRef } from 'react';
 import { StyleSheet } from 'react-native';

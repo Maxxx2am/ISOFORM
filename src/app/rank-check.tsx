@@ -9,7 +9,7 @@ import { ListGroup, ListRow, SectionLabel } from '@/components/ListGroup';
 import { PrimaryButton } from '@/components/PrimaryButton';
 import { Screen } from '@/components/Screen';
 import { Text } from '@/components/Text';
-import { EXERCISES } from '@/exercises/data';
+import { useActiveExercises } from '@/exercises/registry';
 import type { Exercise } from '@/exercises/types';
 import { searchExercises } from '@/lib/search';
 import { RANK_ICON_ASPECT, RANK_ICONS, rankForValue, rankColor, type RankTier } from '@/lib/rank';
@@ -30,6 +30,7 @@ type Result = { tier: RankTier; exercise: Exercise; value: number };
 export default function RankCheckScreen() {
   const t = useTheme();
   const profile = useProfile();
+  const exercises = useActiveExercises();
 
   const [exercise, setExercise] = useState<Exercise | null>(null);
   const [query, setQuery] = useState('');
@@ -40,7 +41,7 @@ export default function RankCheckScreen() {
   const [age, setAge] = useState<number | null>(profile.age);
   const [result, setResult] = useState<Result | null>(null);
 
-  const results = useMemo(() => searchExercises(query, EXERCISES), [query]);
+  const results = useMemo(() => searchExercises(query, exercises), [query, exercises]);
   const value = Number(valueText);
   const canReveal = exercise != null && Number.isFinite(value) && value > 0;
 

@@ -93,7 +93,8 @@ export class FormAnalyzer {
 function safeTest(rule: FormRule, ctx: FormContext): boolean {
   try {
     return rule.test(ctx);
-  } catch {
+  } catch (e) {
+    console.warn(`[FormAnalyzer] rule "${rule.id}" threw:`, e);
     return false;
   }
 }

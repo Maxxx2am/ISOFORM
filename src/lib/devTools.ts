@@ -4,16 +4,15 @@ import * as Device from 'expo-device';
 import { Platform } from 'react-native';
 
 import type { SessionSummary } from '@/engine/sessionEngine';
-import { EXERCISES } from '@/exercises/data';
+import { getActiveExercises } from '@/exercises/registry';
 import { makeId } from '@/lib/format';
 import { useProfile } from '@/store/profile';
-import { DEFAULT_ACCENT } from '@/theme/palette';
 import { useSettings } from '@/store/settings';
-import { clearAllSessions, listSessions, listSessionsFull, saveSession, type SessionRecord } from '@/storage/db';
+import { clearAllSessions, insertIfMissing, listSessions, listSessionsFull, saveSession, type SessionRecord } from '@/storage/db';
 
 /** Inserts a couple weeks of plausible fake sessions across a handful of tracked exercises. */
 export async function seedDemoSessions(now: number = Date.now()): Promise<number> {
-  const picks = EXERCISES.filter((e) => e.tracked).slice(0, 6);
+  const picks = getActiveExercises().filter((e) => e.tracked).slice(0, 6);
   let count = 0;
   for (let day = 13; day >= 0; day--) {
     for (const ex of picks) {
@@ -29,6 +28,9 @@ export async function seedDemoSessions(now: number = Date.now()): Promise<number
         durationMs: 25_000 + Math.floor(Math.random() * 60_000),
         reps,
         holdSeconds,
+        totalReps: reps,
+        totalHoldSeconds: holdSeconds,
+        activeMs: isHold ? holdSeconds * 1000 : 4000,
         attempts: 1 + Math.floor(Math.random() * 2),
         avgBottomAngle: ex.targetAngle ?? null,
         targetAngle: ex.targetAngle ?? null,
@@ -40,6 +42,8 @@ export async function seedDemoSessions(now: number = Date.now()): Promise<number
         cues: [],
         firstActionMs: 0,
         lastActionMs: isHold ? holdSeconds * 1000 : 4000,
+        segments: [{ startMs: 0, endMs: isHold ? holdSeconds * 1000 : 4000, reps: isHold ? 0 : reps }],
+        repThresholds: null,
       };
       await saveSession(makeId(createdAt), ex.name, createdAt, summary, null);
       count += 1;
@@ -57,6 +61,26 @@ export async function deleteAllData(): Promise<void> {
 export async function exportDataAsJson(): Promise<string> {
   const rows: SessionRecord[] = await listSessionsFull();
   return JSON.stringify({ exportedAt: new Date().toISOString(), sessions: rows }, null, 2);
+}
+
+/** Import sessions from an export JSON string. Skips duplicates by ID.
+ *  Returns { imported: number, skipped: number }. */
+export async function importDataFromJson(json: string): Promise<{ imported: number; skipped: number }> {
+  let parsed: { sessions?: SessionRecord[] };
+  try {
+    parsed = JSON.parse(json);
+    if (!parsed || !Array.isArray(parsed.sessions)) throw new Error('Invalid format');
+  } catch {
+    throw new Error('Not a valid ISOFORM export file.');
+  }
+  let imported = 0;
+  let skipped = 0;
+  for (const rec of parsed.sessions) {
+    if (!rec || typeof rec.id !== 'string' || typeof rec.createdAt !== 'number') continue;
+    const added = await insertIfMissing(rec);
+    if (added) imported++; else skipped++;
+  }
+  return { imported, skipped };
 }
 
 /** A plain-text support/QA summary — no PII beyond device model, meant to be
@@ -83,7 +107,6 @@ export async function buildDebugInfo(): Promise<string> {
  * without also wiping the training log those don't depend on. */
 export function resetSettingsAndProfile(): void {
   useSettings.setState({
-    accent: DEFAULT_ACCENT,
     hapticCues: true,
     repHaptics: true,
     repDing: true,

@@ -20,10 +20,13 @@ export const RANK_TIERS = [
 export type RankTier = (typeof RANK_TIERS)[number];
 
 const TIER_COUNT = RANK_TIERS.length; // 12
+/** Light, shiny metal tones — the old Bronze (#E0793E) was a muddy
+ * orange-brown that read as dark/dull next to the badge art; this is a
+ * brighter rose-copper instead. Silver/Gold brightened to match. */
 const METAL_COLOR: Record<'Bronze' | 'Silver' | 'Gold', string> = {
-  Bronze: '#E0793E',
-  Silver: '#AEB9C4',
-  Gold: '#FFC13D',
+  Bronze: '#F2A65F',
+  Silver: '#D8E1EA',
+  Gold: '#FFD666',
 };
 
 export function rankColor(tier: RankTier): string {
@@ -106,7 +109,6 @@ const ELITE_ANCHOR: Record<string, number> = {
   'l-sit': 60,
   plank: 240,
   pistol: 20,
-  'diamond-pushup': 35,
   hespu: 20,
   'muscle-up': 12,
   'front-lever': 40,
@@ -132,21 +134,60 @@ function thresholdsFor(eliteAnchor: number): number[] {
   return FRACTIONS.map((f) => Math.max(1, Math.round(f * eliteAnchor)));
 }
 
-/** Heavier bodyweight makes a bodyweight rep/hold harder — modest ±30% swing centered on 70kg. */
-function bodyweightFactor(weightKg: number | null): number {
+/**
+ * How much extra bodyweight hurts THIS movement pattern, keyed by the
+ * exercise's `family`. Moving your full bodyweight through space vertically
+ * (pull, dip, muscle-up, handstand press) is punished hard — this is basic
+ * relative-strength physics, the same reason a 100kg and a 60kg lifter doing
+ * "the same" pull-up are not doing the same thing. Legs barely care (bigger
+ * frames tend to have proportionally more leg strength, so squat reps don't
+ * correlate much with bodyweight); pure static core/isometric holds sit in
+ * between. 1 (unlisted) is a neutral middle-ground default.
+ */
+const BODYWEIGHT_SENSITIVITY: Record<string, number> = {
+  pull: 1.3, dip: 1.2, 'muscle-up': 1.3, handstand: 1.1,
+  planche: 1.2, 'front-lever': 1.2,
+  push: 0.7, 'l-sit': 1.0, 'l-to-v-raises': 1.0, 'v-sit': 1.0,
+  plank: 0.5, superman: 0.5, 'leg-raise': 0.8, 'hanging-raise': 0.9,
+  squat: 0.15, pistol: 0.3, 'wall-sit': 0.15,
+  'jumping-jack': 0.3, 'mountain-climbers': 0.4,
+};
+
+/** Heavier bodyweight makes a bodyweight rep/hold harder, scaled by how much
+ * THIS movement actually loads bodyweight (see above) — swing is centered on
+ * 70kg and widens with sensitivity instead of one flat ±30% for everything. */
+function bodyweightFactor(weightKg: number | null, family: string): number {
   if (weightKg == null) return 1;
-  const f = 1 + 0.3 * (weightKg - 70) / 70;
-  return Math.min(1.3, Math.max(0.75, f));
+  const sensitivity = BODYWEIGHT_SENSITIVITY[family] ?? 1;
+  const swing = 0.35 * sensitivity;
+  const raw = swing * (weightKg - 70) / 70;
+  return 1 + Math.min(swing, Math.max(-swing, raw));
 }
 
-/** Longer limbs/torso make full-body holds and levers harder (bigger lever
- * arm) — only applied to those categories, height doesn't meaningfully
- * change a squat or push-up rep. Modest ±15% swing centered on 170cm. */
-function leverageFactor(heightCm: number | null, category: string): number {
+/**
+ * How much longer limbs/torso hurt THIS movement, keyed by `family` — true
+ * levers (planche, front-lever, L-sit) are brutal on tall/long-limbed
+ * athletes (bigger moment arm, literally the mechanism the exercise is
+ * named for); pulls/presses/squats have a milder version of the same effect
+ * via a longer range of motion per rep; a pure isometric hold with no ROM and
+ * no cantilevered limb (plank, wall-sit) doesn't meaningfully care about
+ * height. 0 = no adjustment, higher = more.
+ */
+const LEVERAGE_SENSITIVITY: Record<string, number> = {
+  planche: 1.3, 'front-lever': 1.3, 'l-sit': 1.1, 'l-to-v-raises': 1.1, 'v-sit': 1.1,
+  handstand: 0.6, pull: 0.5, 'muscle-up': 0.5, dip: 0.4, push: 0.4,
+  squat: 0.3, pistol: 0.4, 'leg-raise': 0.3, 'hanging-raise': 0.3,
+  plank: 0, 'wall-sit': 0, 'jumping-jack': 0, superman: 0.1, 'mountain-climbers': 0.1,
+};
+
+/** Modest ±25%-at-full-sensitivity swing centered on 170cm — see LEVERAGE_SENSITIVITY. */
+function leverageFactor(heightCm: number | null, family: string): number {
   if (heightCm == null) return 1;
-  if (category !== 'full' && category !== 'core') return 1;
-  const f = 1 + 0.15 * (heightCm - 170) / 170;
-  return Math.min(1.15, Math.max(0.9, f));
+  const sensitivity = LEVERAGE_SENSITIVITY[family] ?? 0.15;
+  if (sensitivity <= 0) return 1;
+  const swing = 0.25 * sensitivity;
+  const raw = swing * (heightCm - 170) / 170;
+  return 1 + Math.min(swing, Math.max(-swing, raw));
 }
 
 /** Clean reps count more than sloppy ones at the same raw number. */
@@ -185,13 +226,13 @@ function ageFactor(age: number | null): number {
  * "?" breakdown — "how many reps for EACH rank", not just the next one.
  */
 export function tierRequirements(
-  exercise: { slug: string; mode: 'reps' | 'hold'; level: number; category: string },
+  exercise: { slug: string; mode: 'reps' | 'hold'; level: number; category: string; family: string },
   profile: { heightCm: number | null; weightKg: number | null; sex?: Sex | null; age?: number | null },
 ): { tier: RankTier; value: number }[] {
   const thresholds = thresholdsFor(eliteAnchorFor(exercise));
   const combined =
-    bodyweightFactor(profile.weightKg) *
-    leverageFactor(profile.heightCm, exercise.category) *
+    bodyweightFactor(profile.weightKg, exercise.family) *
+    leverageFactor(profile.heightCm, exercise.family) *
     formFactor(100) *
     sexFactor(profile.sex) *
     ageFactor(profile.age ?? null);
@@ -215,7 +256,7 @@ function tierFromEffective(
   const tierIndex = Math.max(0, Math.min(TIER_COUNT - 1, idx + 1));
   const floor = idx >= 0 ? thresholds[idx] : 0;
   const nextThreshold = thresholds[idx + 1];
-  const progressToNext = nextThreshold != null ? Math.min(1, Math.max(0, (effective - floor) / (nextThreshold - floor))) : 1;
+  const progressToNext = nextThreshold != null && nextThreshold > floor ? Math.min(1, Math.max(0, (effective - floor) / (nextThreshold - floor))) : 1;
   return {
     tierIndex,
     progressToNext,
@@ -244,8 +285,8 @@ export function computeRanks(
     const thresholds = thresholdsFor(eliteAnchorFor(ex));
     const effective =
       b.value *
-      bodyweightFactor(profile.weightKg) *
-      leverageFactor(profile.heightCm, ex.category) *
+      bodyweightFactor(profile.weightKg, ex.family) *
+      leverageFactor(profile.heightCm, ex.family) *
       formFactor(b.score) *
       sexFactor(profile.sex) *
       ageFactor(profile.age ?? null);
@@ -271,15 +312,15 @@ export function computeRanks(
  * Assumes clean form (score 100), same as `tierRequirements`.
  */
 export function rankForValue(
-  exercise: { slug: string; mode: 'reps' | 'hold'; level: number; category: string },
+  exercise: { slug: string; mode: 'reps' | 'hold'; level: number; category: string; family: string },
   value: number,
   profile: { heightCm: number | null; weightKg: number | null; sex?: Sex | null; age?: number | null },
 ): Omit<ExerciseRank, 'exerciseId' | 'exerciseName'> {
   const thresholds = thresholdsFor(eliteAnchorFor(exercise));
   const effective =
     value *
-    bodyweightFactor(profile.weightKg) *
-    leverageFactor(profile.heightCm, exercise.category) *
+    bodyweightFactor(profile.weightKg, exercise.family) *
+    leverageFactor(profile.heightCm, exercise.family) *
     formFactor(100) *
     sexFactor(profile.sex) *
     ageFactor(profile.age ?? null);

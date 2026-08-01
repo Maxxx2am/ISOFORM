@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
-import { Children, Fragment, type ReactNode } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import * as Haptics from 'expo-haptics';
+import { Children, Fragment, useRef, type ReactNode } from 'react';
+import { Animated, Pressable, StyleSheet, View } from 'react-native';
 
 import { Text } from '@/components/Text';
 import { Radius, Spacing } from '@/theme/palette';
@@ -28,20 +29,35 @@ export function ListGroup({ children }: { children: ReactNode }) {
 type ListRowProps = {
   title: string;
   subtitle?: string;
+  /** Leading icon/glyph, before the title/subtitle column. */
+  icon?: ReactNode;
   /** Right-side content: a value, tag, switch… */
   right?: ReactNode;
   onPress?: () => void;
+  onLongPress?: () => void;
   chevron?: boolean;
   /** Reduce opacity — for locked items. */
   dimmed?: boolean;
 };
 
-export function ListRow({ title, subtitle, right, onPress, chevron, dimmed }: ListRowProps) {
+export function ListRow({ title, subtitle, icon, right, onPress, onLongPress, chevron, dimmed }: ListRowProps) {
   const t = useTheme();
+  const scale = useRef(new Animated.Value(1)).current;
+
+  const onPressIn = () => {
+    if (!onPress) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    Animated.spring(scale, { toValue: 0.985, useNativeDriver: true }).start();
+  };
+  const onPressOut = () => {
+    Animated.spring(scale, { toValue: 1, friction: 5, tension: 160, useNativeDriver: true }).start();
+  };
+
   const body = (
     <>
+      {icon ? <View style={styles.iconSlot}>{icon}</View> : null}
       <View style={styles.rowBody}>
-        <Text variant="body" numberOfLines={1} tone={dimmed ? 'muted' : 'primary'}>
+        <Text variant="body" numberOfLines={1} tone={dimmed ? 'secondary' : 'primary'}>
           {title}
         </Text>
         {subtitle ? (
@@ -54,10 +70,23 @@ export function ListRow({ title, subtitle, right, onPress, chevron, dimmed }: Li
       {chevron ?? !!onPress ? <Ionicons name="chevron-forward" size={17} color={t.ink.muted} /> : null}
     </>
   );
-  if (!onPress) return <View style={[styles.row, dimmed && { opacity: 0.5 }]}>{body}</View>;
+  if (!onPress && !onLongPress) return <View style={[styles.row, dimmed && { opacity: 0.55 }]}>{body}</View>;
   return (
-    <Pressable onPress={onPress} style={({ pressed }) => [styles.row, dimmed && { opacity: 0.55 }, pressed && { backgroundColor: t.surface.sunken }]}>
-      {body}
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={title}
+      onPress={onPress}
+      onLongPress={onLongPress}
+      onPressIn={onPressIn}
+      onPressOut={onPressOut}
+      style={({ pressed }) => [
+        dimmed && { opacity: 0.55 },
+        pressed && { backgroundColor: t.surface.sunken },
+      ]}
+    >
+      <Animated.View style={[styles.row, { transform: [{ scale }] }]}>
+        {body}
+      </Animated.View>
     </Pressable>
   );
 }
@@ -83,5 +112,6 @@ const styles = StyleSheet.create({
     minHeight: 52,
   },
   rowBody: { flex: 1, gap: 2 },
+  iconSlot: { width: 22, alignItems: 'center', justifyContent: 'center' },
   label: { marginBottom: Spacing.sm, marginLeft: 4 },
 });

@@ -14,9 +14,9 @@ export const BUILTIN_TEMPLATES: BuiltinTemplate[] = [
   {
     name: 'Full-Body Beginner',
     steps: [
-      step('incline-pushup', { type: 'reps', values: [10] }),
+      step('pushup', { type: 'reps', values: [10] }),
       step('squat', { type: 'reps', values: [15] }),
-      step('glute-bridge', { type: 'reps', values: [15] }),
+      step('wall-sit', { type: 'hold', values: [20] }),
       step('plank', { type: 'hold', values: [20] }),
     ],
   },
@@ -31,9 +31,9 @@ export const BUILTIN_TEMPLATES: BuiltinTemplate[] = [
   {
     name: 'Core Circuit',
     steps: [
-      step('hollow-hold', { type: 'hold', values: [20] }),
+      step('l-sit', { type: 'hold', values: [10] }),
       step('plank', { type: 'hold', values: [30] }),
-      step('side-plank', { type: 'hold', values: [20] }),
+      step('superman-hold', { type: 'hold', values: [20] }),
       step('hanging-knee-raise', { type: 'reps', values: [10] }),
     ],
   },
@@ -42,7 +42,7 @@ export const BUILTIN_TEMPLATES: BuiltinTemplate[] = [
     steps: [
       step('jumping-jack', { type: 'reps', values: [30] }),
       step('mountain-climbers', { type: 'reps', values: [20] }),
-      step('high-knees', { type: 'reps', values: [30] }),
+      step('jump-squat', { type: 'reps', values: [15] }),
     ],
   },
 ];

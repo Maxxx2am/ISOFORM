@@ -1,7 +1,6 @@
 /**
  * Pose data model. We standardize on the MediaPipe / BlazePose 33-landmark
- * layout. The MoveNet fallback (17 keypoints) is up-mapped into this same enum
- * so the rest of the app only ever sees one landmark vocabulary.
+ * layout produced by the on-device camera tracker (src/camera/useCameraPose.ts).
  */
 
 /** Normalized landmark. x/y are 0..1 in image space; z is relative depth. */
@@ -18,8 +17,16 @@ export type PoseFrame = {
   landmarks: Landmark[];
   /** ms timestamp relative to session start. */
   t: number;
-  /** Which model produced it (for debugging / accuracy notes). */
-  source: 'mediapipe' | 'movenet';
+  /** Which source produced it (for debugging / accuracy notes). 'mock' is the
+   *  synthetic demo squat; 'mediapipe' is the on-device camera tracker. */
+  source: 'mock' | 'mediapipe';
+  /** Upright camera frame's width/height ratio (the same "portrait aspect"
+   *  convention CameraStage.stopRecording() uses). Landmarks are normalized
+   *  against this frame, NOT against whatever box they're displayed in — a
+   *  live view must cover-crop by this ratio the same way the review screen
+   *  already does, or the skeleton drifts off the body whenever the box's
+   *  aspect ratio differs from the camera's. */
+  frameAspect?: number;
 };
 
 /** BlazePose 33-landmark indices. */
@@ -60,6 +67,28 @@ export enum L {
 }
 
 export const LANDMARK_COUNT = 33;
+
+/**
+ * Landmarks that affect exercise angle/reps math. Face (1-10), hand-detail
+ * (17-22) and foot-detail (29-32) landmarks don't participate in any angle
+ * computation — smoothing them wastes CPU/Gas-collection budget for zero
+ * functional gain at 15fps.
+ */
+export const SMOOTHED_LANDMARK_INDICES: readonly L[] = [
+  L.Nose,
+  L.LeftShoulder,
+  L.RightShoulder,
+  L.LeftElbow,
+  L.RightElbow,
+  L.LeftWrist,
+  L.RightWrist,
+  L.LeftHip,
+  L.RightHip,
+  L.LeftKnee,
+  L.RightKnee,
+  L.LeftAnkle,
+  L.RightAnkle,
+];
 
 /** Bone pairs used to draw the skeleton overlay. */
 export const POSE_CONNECTIONS: readonly (readonly [L, L])[] = [

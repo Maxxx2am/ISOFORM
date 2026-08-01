@@ -1,11 +1,17 @@
-# Pose models
+# Pose model
 
-Drop the on-device pose model here.
+`pose_landmarker_lite.task` — MediaPipe Pose Landmarker (Lite, float16),
+fetched from Google's model garden
+(`storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/latest/`),
+~5.8 MB, zip-bundle (`PK`) verified. Apache-2.0, free forever.
 
-- **MoveNet Thunder (int8) `.tflite`** — turnkey default. Input `1×256×256×3` uint8,
-  output `1×1×17×3` float32 `[y, x, score]`. Get it from TensorFlow Hub / Kaggle
-  Models ("movenet/singlepose/thunder"), save as `movenet.tflite` in this folder.
-- **MediaPipe Pose Landmarker `.task`** — richer 33-landmark model. Use if you
-  wire the MediaPipe plugin path instead (see ../../POSE_INTEGRATION.md).
+It is NOT bundled through Metro — the `react-native-mediapipe-posedetection`
+Expo config plugin (see `app.json`) copies every file in this folder into the
+native projects at prebuild (iOS bundle resources / `android/.../assets`),
+excluding files matching `ignoredPattern` (this README). The runtime loads it
+by filename: see `MODEL_FILE` in `src/camera/useCameraPose.ts`.
 
-Models are git-ignored by size; commit via Git LFS or fetch in a postinstall step.
+Want more accuracy at some speed cost? Swap in `pose_landmarker_full.task`
+(same URL pattern, `pose_landmarker_full`) and update `MODEL_FILE` — same
+33-landmark output, drop-in. A native rebuild (EAS) is required after any
+model file change; Metro reload is not enough.

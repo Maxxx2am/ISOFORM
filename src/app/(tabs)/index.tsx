@@ -1,34 +1,38 @@
+import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
-import { router } from 'expo-router';
-import { useEffect, useMemo, useState } from 'react';
-import { Modal, Pressable, StyleSheet, TextInput, View } from 'react-native';
+import * as Haptics from 'expo-haptics';
+import { router, useFocusEffect, useNavigation } from 'expo-router';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
-import { ListGroup, ListRow, SectionLabel } from '@/components/ListGroup';
-import { LockBadge } from '@/components/LockBadge';
+import { Atmosphere } from '@/components/Atmosphere';
+import { ListGroup, ListRow } from '@/components/ListGroup';
+import { PlanRows, StreakHook } from '@/components/PaywallOffer';
+import { PrimaryButton } from '@/components/PrimaryButton';
 import { Screen } from '@/components/Screen';
+import { StreakFlame } from '@/components/StreakFlame';
 import { Text } from '@/components/Text';
-import { EXERCISES } from '@/exercises/data';
-import type { Exercise, ExerciseCategory } from '@/exercises/types';
-import { searchExercises } from '@/lib/search';
+import { useActiveExercises } from '@/exercises/registry';
+import { getExercise } from '@/exercises/data';
+import { getDailyChallenge, getMotivation } from '@/exercises/challenges';
+import { PROGRAMS } from '@/exercises/programs';
+import type { Exercise } from '@/exercises/types';
+import { formatClock, formatRelativeDay } from '@/lib/format';
+import { computeStreakDays } from '@/lib/insights';
+import { computeRanks, rankColor } from '@/lib/rank';
+import { listSessions, type SessionRecord } from '@/storage/db';
+import { useChallengeStore } from '@/store/challenge';
+import { useProfile } from '@/store/profile';
+import { useProgram } from '@/store/program';
 import { FREE_EXERCISES, useSubscription } from '@/store/subscription';
 import { useUiStore } from '@/store/ui';
 import { Feedback, Radius, Spacing } from '@/theme/palette';
 import { useTheme } from '@/theme/useTheme';
 
-const SECTIONS: { key: ExerciseCategory; label: string }[] = [
-  { key: 'lower', label: 'Lower body' },
-  { key: 'upper', label: 'Upper body' },
-  { key: 'core', label: 'Core' },
-  { key: 'full', label: 'Full body' },
-];
-
 export default function TrainScreen() {
   const t = useTheme();
-  const [query, setQuery] = useState('');
-  const results = useMemo(() => searchExercises(query, EXERCISES), [query]);
-  const searching = query.trim().length > 0;
-  // Select the boolean directly (not the whole store) so this screen re-renders
-  // the instant All Access flips in Settings — no app reload needed.
+  const exercises = useActiveExercises();
+  const profile = useProfile();
   const hasAllAccess = useSubscription((s) => s.hasAllAccess);
   const isExerciseUnlocked = (slug: string) => hasAllAccess || FREE_EXERCISES.includes(slug);
   const [buyTarget, setBuyTarget] = useState<Exercise | null>(null);
@@ -39,89 +43,162 @@ export default function TrainScreen() {
     return () => setOverlayOpen(false);
   }, [buyTarget, addOpen, setOverlayOpen]);
 
+  const [sessions, setSessions] = useState<SessionRecord[] | null>(null);
+  const scrollRef = useRef<ScrollView>(null);
+  const navigation = useNavigation<BottomTabNavigationProp<Record<string, object | undefined>>>();
+  useEffect(() => {
+    // 'tabPress' fires only on an actual tab-button tap (switching tabs, or
+    // re-tapping the already-active one) — NOT on a plain focus event, so
+    // coming back here via the back button (e.g. from /search, pushed by the
+    // tab bar's search button) leaves scroll position alone instead of
+    // yanking it back to top.
+    return navigation.addListener('tabPress', () => {
+      scrollRef.current?.scrollTo({ y: 0, animated: true });
+    });
+  }, [navigation]);
+  useFocusEffect(
+    useCallback(() => {
+      let alive = true;
+      listSessions()
+        .then((rows) => alive && setSessions(rows))
+        .catch(() => alive && setSessions([]));
+      return () => { alive = false; };
+    }, []),
+  );
+
+  const streakDays = useMemo(
+    () => (sessions ? computeStreakDays(sessions.map((s) => s.createdAt)) : 0),
+    [sessions],
+  );
+
+  const ranks = useMemo(
+    () =>
+      sessions
+        ? computeRanks(sessions, { heightCm: profile.heightCm, weightKg: profile.weightKg, sex: profile.sex, age: profile.age })
+        : [],
+    [sessions, profile.heightCm, profile.weightKg, profile.sex, profile.age],
+  );
+
+  // "Continue your progression" — whichever tracked exercise is CLOSEST to
+  // leveling up (highest progressToNext among those with a next tier), not
+  // just whatever was trained last. This is the one thing Train shows that
+  // Profile doesn't: a specific next action, not a stats summary.
+  const continueRank = useMemo(() => {
+    const withNext = ranks.filter((r) => r.nextTier != null);
+    if (withNext.length === 0) return null;
+    return [...withNext].sort((a, b) => b.progressToNext - a.progressToNext)[0];
+  }, [ranks]);
+
   const open = (slug: string) => {
     if (isExerciseUnlocked(slug)) {
       router.push({ pathname: '/exercise/[slug]', params: { slug } });
+    } else {
+      const ex = getExercise(slug);
+      if (ex) setBuyTarget(ex);
     }
   };
 
-  const row = (ex: Exercise) => {
-    const unlocked = isExerciseUnlocked(ex.slug);
-    return (
-      <ListRow
-        key={ex.id}
-        title={ex.name}
-        subtitle={ex.summary}
-        onPress={() => (unlocked ? open(ex.slug) : setBuyTarget(ex))}
-        right={
-          unlocked ? (
-            ex.tracked ? (
-              <Ionicons name="videocam" size={15} color={t.accent.color} />
-            ) : (
-              <Text variant="label" tone="muted">
-                Lv {ex.level}
-              </Text>
-            )
-          ) : (
-            <LockBadge />
-          )
-        }
-        dimmed={!unlocked}
-      />
-    );
-  };
-
   return (
-    <Screen scroll>
+    <Screen scroll ref={scrollRef}>
+      <Atmosphere />
       <View style={styles.header}>
         <Text variant="title">Train</Text>
-        <Pressable
-          onPress={() => setAddOpen(true)}
-          style={[styles.addBtn, { backgroundColor: t.surface.raised, borderColor: t.ink.hairline }]}
-        >
-          <Ionicons name="add" size={20} color={t.ink.primary} />
-        </Pressable>
+        <View style={{ flex: 1 }} />
+        {streakDays > 0 ? (
+          <Pressable onPress={() => router.push('/(tabs)/insights')} style={styles.streakPill} hitSlop={4}>
+            <StreakFlame days={streakDays} />
+            <Text variant="heading" style={{ marginLeft: -6 }}>{streakDays}</Text>
+          </Pressable>
+        ) : null}
       </View>
 
-      <View style={[styles.search, { backgroundColor: t.surface.raised, borderColor: t.ink.hairline }]}>
-        <Ionicons name="search" size={17} color={t.ink.muted} />
-        <TextInput
-          value={query}
-          onChangeText={setQuery}
-          placeholder="Search movements"
-          placeholderTextColor={t.ink.muted}
-          style={[styles.input, { color: t.ink.primary }]}
-          autoCorrect={false}
-          autoCapitalize="none"
-          returnKeyType="search"
-        />
-        {searching ? <Ionicons name="close-circle" size={17} color={t.ink.muted} onPress={() => setQuery('')} /> : null}
-      </View>
+      <ChallengeCardCmp />
+      <ProgramBannerCmp />
 
-      {searching ? (
-        results.length === 0 ? (
-          <Text tone="muted" style={{ marginTop: Spacing.lg, textAlign: 'center' }}>
-            No matches for &quot;{query.trim()}&quot;.
-          </Text>
-        ) : (
-          <View style={{ marginTop: Spacing.md }}>
-            <ListGroup>{results.map(row)}</ListGroup>
+      {/* Only ever the exercise closest to leveling up — no "you haven't
+          trained X in a while" nudge. That kind of suggestion reads as
+          judgmental to some people, and "closest to the next tier" is
+          already a real, motivating reason to show something. */}
+      {continueRank ? (
+        <View style={{ marginTop: Spacing.lg }}>
+          <Text variant="label" tone="muted">Up next</Text>
+          <View style={{ marginTop: Spacing.sm }}>
+            <ListGroup>
+              <ListRow
+                title={continueRank.exerciseName}
+                subtitle={`${continueRank.remainingToNext} more ${continueRank.mode === 'reps' ? 'reps' : 'seconds'} to ${continueRank.nextTier}`}
+                icon={
+                  <View style={[styles.rankIconBadge, { backgroundColor: `${rankColor(continueRank.tier)}22` }]}>
+                    <Ionicons name="trending-up" size={18} color={rankColor(continueRank.tier)} />
+                  </View>
+                }
+                onPress={() => open(continueRank.exerciseId)}
+              />
+            </ListGroup>
           </View>
-        )
-      ) : (
-        SECTIONS.map((section) => {
-          const items = EXERCISES.filter((e) => e.category === section.key).sort((a, b) => a.level - b.level);
-          if (items.length === 0) return null;
-          return (
-            <View key={section.key} style={{ marginTop: Spacing.lg }}>
-              <SectionLabel>{section.label}</SectionLabel>
-              <ListGroup>{items.map(row)}</ListGroup>
-            </View>
-          );
-        })
-      )}
+        </View>
+      ) : null}
 
-      <PurchaseModal exercise={buyTarget} onClose={() => setBuyTarget(null)} />
+      {!continueRank && sessions != null ? (
+        <View style={[styles.empty, { backgroundColor: t.surface.raised, borderColor: t.ink.hairline }]}>
+          <View style={[styles.emptyIconWrap, { backgroundColor: t.surface.sunken }]}>
+            <Ionicons name="search-outline" size={28} color={t.ink.muted} />
+          </View>
+          <Text variant="heading" style={{ textAlign: 'center', marginTop: Spacing.md }}>Find a movement</Text>
+          <Text tone="secondary" style={{ textAlign: 'center', marginTop: Spacing.xs }}>
+            Search for an exercise to start your first set.
+          </Text>
+          <PrimaryButton
+            label="Browse exercises"
+            variant="outline"
+            icon={<Ionicons name="search" size={18} color={t.ink.primary} />}
+            onPress={() => router.push('/search')}
+            style={{ marginTop: Spacing.md, alignSelf: 'stretch' }}
+          />
+        </View>
+      ) : null}
+
+      <PrimaryButton
+        label="Start training"
+        variant="hero"
+        icon={<Ionicons name="arrow-forward" size={26} color={t.accent.onColor} />}
+        onPress={() => setAddOpen(true)}
+        style={{ marginTop: Spacing.xl }}
+      />
+
+      {sessions && sessions.length > 0 ? (
+        <View style={{ marginTop: Spacing.xl }}>
+          <Text variant="label" tone="muted">Recent</Text>
+          <View style={{ marginTop: Spacing.sm }}>
+            <ListGroup>
+              {sessions.slice(0, 2).map((s) => (
+                <ListRow
+                  key={s.id}
+                  title={s.exerciseName}
+                  subtitle={`${formatRelativeDay(s.createdAt)} · ${formatClock(s.durationMs)}${s.note ? ' · 📝' : ''}`}
+                  onPress={() => router.push({ pathname: '/workout/review/[id]', params: { id: s.id } })}
+                  right={
+                    <Text variant="body" tone="secondary">
+                      {s.reps > 0 ? `${s.reps} reps` : `${s.holdSeconds}s`}
+                    </Text>
+                  }
+                />
+              ))}
+            </ListGroup>
+          </View>
+        </View>
+      ) : null}
+
+      {/* Clears the floating tab bar (64 height + 24 bottom margin ≈ 88pt) —
+          Screen's own default scroll padding alone isn't enough to stop the
+          last row from sitting under it. */}
+      <View style={{ height: Spacing.xxl }} />
+
+      <PurchaseModal
+        exercise={buyTarget}
+        lockedCount={Math.max(0, exercises.length - FREE_EXERCISES.length)}
+        onClose={() => setBuyTarget(null)}
+      />
       <StartWorkoutSheet visible={addOpen} onClose={() => setAddOpen(false)} />
     </Screen>
   );
@@ -129,81 +206,245 @@ export default function TrainScreen() {
 
 function StartWorkoutSheet({ visible, onClose }: { visible: boolean; onClose: () => void }) {
   const t = useTheme();
-  const go = (pathname: '/workout/builder' | '/workout/templates', params?: Record<string, string>) => {
+  const exercises = useActiveExercises();
+  const [view, setView] = useState<'main' | 'startChoice'>('main');
+
+  const close = () => {
     onClose();
+    setTimeout(() => setView('main'), 250);
+  };
+  const haptic = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+  };
+  const go = (pathname: '/workout/builder' | '/workout/templates', params?: Record<string, string>) => {
+    haptic();
+    onClose();
+    setView('main');
     router.push(params ? { pathname, params } : pathname);
   };
+
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <Pressable style={styles.overlay} onPress={onClose}>
+    <Modal visible={visible} transparent animationType="none" onRequestClose={close}>
+      <Pressable style={styles.overlay} onPress={close}>
         <Pressable style={[styles.sheet, { backgroundColor: t.surface.base, borderColor: t.ink.hairline }]}>
-          <Text variant="heading" style={{ textAlign: 'center' }}>
-            Workout
-          </Text>
-          <Pressable
-            onPress={() => go('/workout/builder', { mode: 'start' })}
-            style={[styles.sheetRow, { borderColor: t.ink.hairline, backgroundColor: t.surface.raised }]}
-          >
-            <Ionicons name="play-circle-outline" size={22} color={t.accent.color} />
-            <View style={{ flex: 1 }}>
-              <Text variant="heading">Start workout</Text>
-              <Text variant="caption" tone="secondary">Pick exercises and go — nothing saved</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={18} color={t.ink.muted} />
-          </Pressable>
-          <Pressable
-            onPress={() => go('/workout/templates')}
-            style={[styles.sheetRow, { borderColor: t.ink.hairline, backgroundColor: t.surface.raised }]}
-          >
-            <Ionicons name="list-outline" size={22} color={t.accent.color} />
-            <View style={{ flex: 1 }}>
-              <Text variant="heading">Choose template</Text>
-              <Text variant="caption" tone="secondary">Ready-made or one you&apos;ve saved</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={18} color={t.ink.muted} />
-          </Pressable>
+          {view === 'main' ? (
+            <>
+              <Text variant="heading" style={{ textAlign: 'center' }}>
+                Workout
+              </Text>
+              <Pressable
+                onPress={() => { haptic(); onClose(); setView('main'); router.push('/search'); }}
+                style={({ pressed }) => [styles.sheetRow, { borderColor: t.ink.hairline, backgroundColor: t.surface.raised }, pressed && { opacity: 0.7 }]}
+              >
+                <Ionicons name="search-outline" size={22} color={t.accent.color} />
+                <View style={{ flex: 1 }}>
+                  <Text variant="heading">Browse</Text>
+                  <Text variant="caption" tone="secondary">See every movement and start training</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color={t.ink.muted} />
+              </Pressable>
+              <Pressable
+                onPress={() => { haptic(); setView('startChoice'); }}
+                style={({ pressed }) => [styles.sheetRow, { borderColor: t.ink.hairline, backgroundColor: t.surface.raised }, pressed && { opacity: 0.7 }]}
+              >
+                <Ionicons name="play-circle-outline" size={22} color={t.accent.color} />
+                <View style={{ flex: 1 }}>
+                  <Text variant="heading">Start workout</Text>
+                  <Text variant="caption" tone="secondary">From a template, or build one now</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color={t.ink.muted} />
+              </Pressable>
+            </>
+          ) : (
+            <>
+              <View style={{ flexDirection: 'row', alignItems: 'center', width: '100%' }}>
+                <Pressable onPress={() => { haptic(); setView('main'); }} hitSlop={8} style={{ padding: 4 }}>
+                  <Ionicons name="chevron-back" size={22} color={t.ink.muted} />
+                </Pressable>
+                <Text variant="heading" style={{ flex: 1, textAlign: 'center', marginRight: 26 }}>
+                  Start workout
+                </Text>
+              </View>
+              <Pressable
+                onPress={() => go('/workout/templates')}
+                style={({ pressed }) => [styles.sheetRow, { borderColor: t.ink.hairline, backgroundColor: t.surface.raised }, pressed && { opacity: 0.7 }]}
+              >
+                <Ionicons name="list-outline" size={22} color={t.accent.color} />
+                <View style={{ flex: 1 }}>
+                  <Text variant="heading">From template</Text>
+                  <Text variant="caption" tone="secondary">Ready-made or one you&apos;ve saved</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color={t.ink.muted} />
+              </Pressable>
+              <Pressable
+                onPress={() => go('/workout/builder', { mode: 'start' })}
+                style={({ pressed }) => [styles.sheetRow, { borderColor: t.ink.hairline, backgroundColor: t.surface.raised }, pressed && { opacity: 0.7 }]}
+              >
+                <Ionicons name="add-circle-outline" size={22} color={t.accent.color} />
+                <View style={{ flex: 1 }}>
+                  <Text variant="heading">Start new</Text>
+                  <Text variant="caption" tone="secondary">Pick exercises and go — nothing saved yet</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color={t.ink.muted} />
+              </Pressable>
+            </>
+          )}
         </Pressable>
       </Pressable>
     </Modal>
   );
 }
 
-function PurchaseModal({ exercise, onClose }: { exercise: Exercise | null; onClose: () => void }) {
+function ChallengeCardCmp() {
   const t = useTheme();
-  const { hasAllAccess } = useSubscription();
-  if (hasAllAccess) return null;
+  const hasAllAccess = useSubscription((s) => s.hasAllAccess);
+  const history = useChallengeStore((s) => s.history);
+  const [sessions, setSessions] = useState<SessionRecord[] | null>(null);
 
+  useEffect(() => {
+    listSessions()
+      .then((rows) => setSessions(rows))
+      .catch(() => setSessions([]));
+  }, []);
+
+  const challenge = useMemo(
+    () => sessions ? getDailyChallenge(new Date(), sessions, hasAllAccess) : null,
+    [sessions, hasAllAccess],
+  );
+
+  if (!challenge) return null;
+
+  const today = new Date().toISOString().slice(0, 10);
+  const done = history[today];
+
+  if (done) {
+    const motivation = getMotivation(Date.now());
+    return (
+      <View style={[styles.card, { backgroundColor: t.surface.raised, borderColor: Feedback.good }]}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm }}>
+          <Ionicons name="checkmark-circle" size={22} color={Feedback.good} />
+          <Text variant="heading" style={{ color: Feedback.good }}>Challenge complete</Text>
+        </View>
+        <Text tone="secondary" style={{ marginTop: Spacing.xs }}>
+          {challenge.title} · {getExercise(challenge.exerciseSlug)?.name ?? challenge.exerciseName}
+        </Text>
+        {done.score != null ? (
+          <Text variant="display" style={{ marginTop: Spacing.sm, color: Feedback.good }}>{done.score}</Text>
+        ) : null}
+        <Text tone="secondary" variant="body" style={{ marginTop: Spacing.sm }}>{motivation}</Text>
+      </View>
+    );
+  }
+
+  return (
+    <Pressable
+      onPress={() => {
+        router.push({
+          pathname: '/workout/active',
+          params: {
+            slug: challenge.exerciseSlug,
+            challengeId: challenge.id,
+            challengeTarget: challenge.target != null ? String(challenge.target) : '0',
+          },
+        });
+      }}
+      style={({ pressed }) => [
+        styles.card,
+        { backgroundColor: t.surface.raised, borderColor: t.ink.hairline },
+        pressed && { opacity: 0.7 },
+      ]}
+    >
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm }}>
+        <Ionicons name="play-circle" size={22} color={t.accent.color} />
+        <Text variant="heading" style={{ color: t.accent.color }}>Today&apos;s challenge</Text>
+      </View>
+      <Text tone="secondary" style={{ marginTop: Spacing.xs }}>
+        {challenge.title} · {getExercise(challenge.exerciseSlug)?.name ?? challenge.exerciseName}
+      </Text>
+      {challenge.target != null ? (
+        <Text variant="body" style={{ marginTop: Spacing.sm }}>
+          Target: {challenge.target} {challenge.targetLabel}
+        </Text>
+      ) : null}
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, marginTop: Spacing.sm }}>
+        <Ionicons name="play-circle" size={18} color={t.accent.color} />
+        <Text variant="body" style={{ color: t.accent.color }}>Start challenge</Text>
+      </View>
+    </Pressable>
+  );
+}
+
+function ProgramBannerCmp() {
+  const t = useTheme();
+  const active = useProgram((s) => {
+    const prog = s.activeProgram();
+    return prog ? { prog, step: prog.steps[s.currentStepIndex], stepIndex: s.currentStepIndex, totalSteps: prog.steps.length } : null;
+  });
+
+  if (!active) return null;
+
+  const ex = getExercise(active.step.exerciseSlug);
+  const req = active.step.requirement;
+  const reqText = req.type === 'reps' ? `${req.value} reps` : `${req.value}s hold`;
+  const formText = req.minFormScore != null ? ` · ${req.minFormScore}+ form` : '';
+
+  return (
+    <Pressable
+      onPress={() => {
+        router.push({
+          pathname: '/workout/active',
+          params: { slug: active.step.exerciseSlug },
+        });
+      }}
+      style={({ pressed }) => [
+        styles.card,
+        { backgroundColor: t.surface.raised, borderColor: t.ink.hairline },
+        pressed && { opacity: 0.7 },
+      ]}
+    >
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm }}>
+        <Ionicons name="fitness" size={22} color={t.accent.color} />
+        <Text variant="heading" style={{ color: t.accent.color }}>{active.prog.name}</Text>
+      </View>
+      <Text tone="secondary" style={{ marginTop: Spacing.xs }}>
+        Step {active.stepIndex + 1} of {active.totalSteps} · {ex?.name ?? active.step.exerciseSlug}
+      </Text>
+      <Text variant="body" style={{ marginTop: Spacing.xs }}>
+        {reqText}{formText}
+      </Text>
+      <Text variant="caption" tone="secondary" style={{ marginTop: Spacing.sm }}>
+        {active.step.tip}
+      </Text>
+    </Pressable>
+  );
+}
+
+function PurchaseModal({
+  exercise,
+  lockedCount,
+  onClose,
+}: {
+  exercise: Exercise | null;
+  lockedCount: number;
+  onClose: () => void;
+}) {
+  const t = useTheme();
   return (
     <Modal visible={exercise != null} transparent animationType="fade" onRequestClose={onClose}>
       <Pressable style={styles.overlay} onPress={onClose}>
         <Pressable style={[styles.sheet, { backgroundColor: t.surface.base, borderColor: t.ink.hairline }]}>
-          <LockBadge size="lg" />
           <Text variant="heading" style={{ marginTop: Spacing.sm, textAlign: 'center' }}>
-            {exercise?.name ?? ''}
+            {exercise?.name ?? ''} is locked
           </Text>
+          {/* Loss-framed, not just "here's what you get" — naming what's
+              currently missing converts better than a plain feature list. */}
           <Text tone="secondary" style={{ textAlign: 'center', marginTop: Spacing.xs }}>
-            Unlock this exercise or get access to everything.
+            No rep count, no form score, no video review on {exercise?.name ?? 'this exercise'} — or on{' '}
+            {lockedCount > 0 ? `the ${lockedCount} other exercise${lockedCount === 1 ? '' : 's'}` : 'anything else'} still locked.
           </Text>
 
-          <Pressable style={[styles.buyBtn, { backgroundColor: t.surface.raised, borderColor: t.ink.hairline }]}>
-            <View style={{ flex: 1 }}>
-              <Text variant="heading">{exercise?.name ?? ''}</Text>
-              <Text variant="caption" tone="secondary">Just this exercise</Text>
-            </View>
-            <Text variant="heading" tone="accent">$1/mo</Text>
-          </Pressable>
-
-          <Pressable style={[styles.buyBtn, { backgroundColor: Feedback.good, borderColor: Feedback.good }]}>
-            <View style={{ flex: 1 }}>
-              <Text variant="heading" style={{ color: '#000' }}>All Access</Text>
-              <Text variant="caption" style={{ color: 'rgba(0,0,0,0.6)' }}>Every exercise, future updates</Text>
-            </View>
-            <Text variant="heading" style={{ color: '#000' }}>$5/mo</Text>
-          </Pressable>
-
-          <Text variant="caption" tone="muted" style={{ textAlign: 'center', marginTop: Spacing.xs }}>
-            Payments coming soon — use the All Access toggle in Settings for now.
-          </Text>
+          <StreakHook active={exercise != null} />
+          <PlanRows exerciseName={exercise?.name ?? ''} lockedCount={lockedCount} />
         </Pressable>
       </Pressable>
     </Modal>
@@ -211,19 +452,35 @@ function PurchaseModal({ exercise, onClose }: { exercise: Exercise | null; onClo
 }
 
 const styles = StyleSheet.create({
-  header: { paddingTop: Spacing.md, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  addBtn: { width: 36, height: 36, borderRadius: Radius.pill, alignItems: 'center', justifyContent: 'center', borderWidth: 1 },
-  search: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.sm,
-    marginTop: Spacing.md,
-    paddingHorizontal: Spacing.md,
-    height: 44,
-    borderRadius: Radius.pill,
+  header: { paddingTop: Spacing.md, flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
+  streakPill: { flexDirection: 'row', alignItems: 'center' },
+  card: {
+    marginTop: Spacing.sm,
+    padding: Spacing.lg,
+    borderRadius: Radius.md,
     borderWidth: 1,
   },
-  input: { flex: 1, fontSize: 16, fontWeight: '500', paddingVertical: 0 },
+  empty: {
+    marginTop: Spacing.lg,
+    padding: Spacing.xl,
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    alignItems: 'center',
+  },
+  emptyIconWrap: {
+    width: 56,
+    height: 56,
+    borderRadius: Radius.pill,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  rankIconBadge: {
+    width: 32,
+    height: 32,
+    borderRadius: Radius.pill,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   overlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.6)',
@@ -240,14 +497,6 @@ const styles = StyleSheet.create({
     paddingBottom: Spacing.xxl,
     gap: Spacing.md,
     alignItems: 'center',
-  },
-  buyBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    width: '100%',
-    padding: Spacing.md,
-    borderRadius: Radius.md,
-    borderWidth: 1,
   },
   sheetRow: {
     flexDirection: 'row',

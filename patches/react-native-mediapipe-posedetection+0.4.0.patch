@@ -1,0 +1,72 @@
+diff --git a/node_modules/react-native-mediapipe-posedetection/ios/MediapipePosedetection.mm b/node_modules/react-native-mediapipe-posedetection/ios/MediapipePosedetection.mm
+index 7d209e2..195d4b4 100644
+--- a/node_modules/react-native-mediapipe-posedetection/ios/MediapipePosedetection.mm
++++ b/node_modules/react-native-mediapipe-posedetection/ios/MediapipePosedetection.mm
+@@ -1,7 +1,15 @@
+ // MediapipePosedetection.mm
+ 
+ #import "MediapipePosedetection.h"
++// Static-framework builds (use_frameworks! :linkage => :static — required by
++// the MediaPipeTasksVision binary pod) expose the generated Swift interface
++// header only under the framework-style angle-bracket path; static-library
++// builds only under the quoted path. Support both.
++#if __has_include("MediapipePosedetection-Swift.h")
+ #import "MediapipePosedetection-Swift.h"
++#else
++#import <MediapipePosedetection/MediapipePosedetection-Swift.h>
++#endif
+ #import "MediapipePosedetectionSpec.h"
+ 
+ #import <React/RCTLog.h>
+diff --git a/node_modules/react-native-mediapipe-posedetection/lib/commonjs/index.js b/node_modules/react-native-mediapipe-posedetection/lib/commonjs/index.js
+index c7cad7e..67c776d 100644
+--- a/node_modules/react-native-mediapipe-posedetection/lib/commonjs/index.js
++++ b/node_modules/react-native-mediapipe-posedetection/lib/commonjs/index.js
+@@ -75,7 +75,7 @@ const setupEventListeners = () => {
+   if (_NativeMediapipePosedetection.default?.onResults) {
+     // @ts-ignore
+     onResultsSubscription = _NativeMediapipePosedetection.default.onResults(args => {
+-      console.log('onResults event received:', args.handle);
++      /* per-frame log stripped (JS-thread perf) */
+       const typedArgs = args;
+       const callbacks = detectorMap.get(typedArgs.handle);
+       if (callbacks) {
+diff --git a/node_modules/react-native-mediapipe-posedetection/lib/commonjs/shared/convert.js b/node_modules/react-native-mediapipe-posedetection/lib/commonjs/shared/convert.js
+index 9d6845c..6591d17 100644
+--- a/node_modules/react-native-mediapipe-posedetection/lib/commonjs/shared/convert.js
++++ b/node_modules/react-native-mediapipe-posedetection/lib/commonjs/shared/convert.js
+@@ -238,7 +238,7 @@ class BaseViewCoordinator {
+     this.resizeMode = resizeMode;
+     this.orientation = relativeTo(outputOrientation, sensorOrientation);
+     this.rotation = (0, _types.orientationToRotation)(this.orientation);
+-    console.log('BaseViewCoordinator.constructor', JSON.stringify({
++    (function(){})('BaseViewCoordinator.constructor', JSON.stringify({
+       mirrored: this.mirrored,
+       orientation: this.orientation,
+       rotation: this.rotation,
+diff --git a/node_modules/react-native-mediapipe-posedetection/lib/module/index.js b/node_modules/react-native-mediapipe-posedetection/lib/module/index.js
+index 37db904..cd51863 100644
+--- a/node_modules/react-native-mediapipe-posedetection/lib/module/index.js
++++ b/node_modules/react-native-mediapipe-posedetection/lib/module/index.js
+@@ -45,7 +45,7 @@ const setupEventListeners = () => {
+   if (MediapipePosedetection?.onResults) {
+     // @ts-ignore
+     onResultsSubscription = MediapipePosedetection.onResults(args => {
+-      console.log('onResults event received:', args.handle);
++      /* per-frame log stripped (JS-thread perf) */
+       const typedArgs = args;
+       const callbacks = detectorMap.get(typedArgs.handle);
+       if (callbacks) {
+diff --git a/node_modules/react-native-mediapipe-posedetection/lib/module/shared/convert.js b/node_modules/react-native-mediapipe-posedetection/lib/module/shared/convert.js
+index 3ad87c0..8424ef0 100644
+--- a/node_modules/react-native-mediapipe-posedetection/lib/module/shared/convert.js
++++ b/node_modules/react-native-mediapipe-posedetection/lib/module/shared/convert.js
+@@ -223,7 +223,7 @@ export class BaseViewCoordinator {
+     this.resizeMode = resizeMode;
+     this.orientation = relativeTo(outputOrientation, sensorOrientation);
+     this.rotation = orientationToRotation(this.orientation);
+-    console.log('BaseViewCoordinator.constructor', JSON.stringify({
++    (function(){})('BaseViewCoordinator.constructor', JSON.stringify({
+       mirrored: this.mirrored,
+       orientation: this.orientation,
+       rotation: this.rotation,

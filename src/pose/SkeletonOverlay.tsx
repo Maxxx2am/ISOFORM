@@ -1,7 +1,8 @@
+import { memo } from 'react';
 import Svg, { Circle, Line, Path } from 'react-native-svg';
 
 import { KEY_JOINTS, L, POSE_CONNECTIONS, type Landmark } from '@/pose/types';
-import { Accents } from '@/theme/palette';
+import { Feedback, Ink } from '@/theme/palette';
 
 export type BodyHighlight = 'torso' | 'arm' | 'leg' | null;
 
@@ -9,6 +10,13 @@ type SkeletonOverlayProps = {
   landmarks: Landmark[] | null;
   width: number;
   height: number;
+  /** The camera frame's own width/height ratio (PoseFrame.frameAspect) —
+   *  landmarks are normalized against that frame, not against this box, so
+   *  when the two aspect ratios differ (near-universal on a live camera
+   *  preview) they must be cover-cropped into the box exactly like the
+   *  review screen's VideoReplay already does. Omit for pre-transformed
+   *  landmarks (e.g. VideoReplay passes already-cropped display landmarks). */
+  frameAspect?: number | null;
   /** Mirror horizontally (natural for front-camera self-view). */
   mirror?: boolean;
   accentColor?: string;
@@ -66,13 +74,19 @@ const SIDE: { left: Side; right: Side } = {
  *   one arm, one leg, one curved spine. Nothing is drawn for landmarks that
  *   aren't visible, so it never guesses/flickers the hidden far side.
  */
-export function SkeletonOverlay({
+// Memoized — the review replay's polling loop can hand back the SAME
+// timeline sample reference on consecutive ticks (poll interval is faster
+// than the recorded frame rate), so this skips re-running the connection/
+// spine-bow geometry math on those ticks instead of redoing it every 66ms
+// regardless of whether the pose actually changed.
+export const SkeletonOverlay = memo(function SkeletonOverlay({
   landmarks,
   width,
   height,
+  frameAspect = null,
   mirror = false,
-  accentColor = Accents.mono.color,
-  failColor = Accents.mono.color,
+  accentColor = Ink.primary,
+  failColor = Feedback.bad,
   highlight = null,
   minVisibility = 0.4,
   hideLegs = false,
@@ -81,8 +95,27 @@ export function SkeletonOverlay({
 }: SkeletonOverlayProps) {
   if (!landmarks || landmarks.length === 0) return null;
 
-  const px = (lm: Landmark) => (mirror ? (1 - lm.x) * width : lm.x * width);
-  const py = (lm: Landmark) => lm.y * height;
+  // Cover-crop mapping (same math as review/[id].tsx's VideoReplay): the
+  // frame that produced these normalized landmarks isn't necessarily the
+  // same aspect ratio as this box, so scale+center-crop into it first.
+  // Without frameAspect this collapses to drawnW=width/drawnH=height with
+  // zero offset — identical to the old naive `lm.x * width` mapping.
+  const viewRatio = width / height;
+  const fr = frameAspect && frameAspect > 0 ? frameAspect : viewRatio;
+  let drawnW: number;
+  let drawnH: number;
+  if (fr > viewRatio) {
+    drawnH = height;
+    drawnW = height * fr;
+  } else {
+    drawnW = width;
+    drawnH = width / fr;
+  }
+  const xoff = (width - drawnW) / 2;
+  const yoff = (height - drawnH) / 2;
+
+  const px = (lm: Landmark) => (mirror ? (1 - lm.x) * drawnW : lm.x * drawnW) + xoff;
+  const py = (lm: Landmark) => lm.y * drawnH + yoff;
   const vis = (i: number) => (landmarks[i]?.visibility ?? 0) >= minVisibility;
 
   // Pull-up bar: horizontal line at the higher visible wrist.
@@ -151,7 +184,7 @@ export function SkeletonOverlay({
       })}
     </Svg>
   );
-}
+});
 
 /** One clean line down the more-visible side. */
 function SideSkeleton({

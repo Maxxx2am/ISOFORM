@@ -13,23 +13,48 @@ export type SessionRecord = {
   durationMs: number;
   reps: number;
   holdSeconds: number;
+  totalReps: number | null;
+  totalHoldSeconds: number | null;
+  activeMs: number | null;
   avgBottomAngle: number | null;
   cues: CueTally[];
   videoUri: string | null;
-  /** Recorded video width/height ratio — lets a reopened replay size its box
-   * correctly instead of falling back to a full-width, wrong-aspect box. */
   videoAspect: number | null;
-  /** Overall 0-100 score computed at save time (null for sessions saved before this existed). */
   score: number | null;
-  /** Tracked-action window, ms — lets a reopened review trim the same way a fresh one does. */
   firstActionMs: number | null;
   lastActionMs: number | null;
-  /** Per-frame landmarks for the replay window only (not the whole raw session) — lets the
-   * skeleton overlay draw when reopening a session from history, not just right after finishing it. */
+  segments: { startMs: number; endMs: number; reps: number }[];
   timeline: TimelineSample[];
+  /** Free-text note the user wrote after this set. */
+  note: string | null;
+};
+
+/** Body measurement log, one row per entry — used for trend charts on Profile. */
+export type MeasurementRecord = {
+  id: string;
+  createdAt: number;
+  weightKg: number | null;
+  chestCm: number | null;
+  waistCm: number | null;
+  armCm: number | null;
+  thighCm: number | null;
 };
 
 let dbPromise: Promise<SQLite.SQLiteDatabase> | null = null;
+
+/** Columns added after the initial release — older DBs need them bolted on. */
+const MIGRATION_COLUMNS: { name: string; ddl: string }[] = [
+  { name: 'score', ddl: 'ALTER TABLE sessions ADD COLUMN score INTEGER;' },
+  { name: 'firstActionMs', ddl: 'ALTER TABLE sessions ADD COLUMN firstActionMs INTEGER;' },
+  { name: 'lastActionMs', ddl: 'ALTER TABLE sessions ADD COLUMN lastActionMs INTEGER;' },
+  { name: 'timeline', ddl: 'ALTER TABLE sessions ADD COLUMN timeline TEXT;' },
+  { name: 'videoAspect', ddl: 'ALTER TABLE sessions ADD COLUMN videoAspect REAL;' },
+  { name: 'totalReps', ddl: 'ALTER TABLE sessions ADD COLUMN totalReps INTEGER;' },
+  { name: 'totalHoldSeconds', ddl: 'ALTER TABLE sessions ADD COLUMN totalHoldSeconds INTEGER;' },
+  { name: 'segments', ddl: 'ALTER TABLE sessions ADD COLUMN segments TEXT;' },
+  { name: 'activeMs', ddl: 'ALTER TABLE sessions ADD COLUMN activeMs INTEGER;' },
+  { name: 'note', ddl: 'ALTER TABLE sessions ADD COLUMN note TEXT;' },
+];
 
 function getDb(): Promise<SQLite.SQLiteDatabase> {
   if (!dbPromise) {
@@ -48,20 +73,28 @@ function getDb(): Promise<SQLite.SQLiteDatabase> {
           cues TEXT NOT NULL,
           videoUri TEXT
         );
+        CREATE TABLE IF NOT EXISTS body_measurements (
+          id TEXT PRIMARY KEY NOT NULL,
+          createdAt INTEGER NOT NULL,
+          weightKg REAL,
+          chestCm REAL,
+          waistCm REAL,
+          armCm REAL,
+          thighCm REAL
+        );
       `);
-      // Columns added after the initial release — older DBs need them bolted on.
-      for (const ddl of [
-        `ALTER TABLE sessions ADD COLUMN score INTEGER;`,
-        `ALTER TABLE sessions ADD COLUMN firstActionMs INTEGER;`,
-        `ALTER TABLE sessions ADD COLUMN lastActionMs INTEGER;`,
-        `ALTER TABLE sessions ADD COLUMN timeline TEXT;`,
-        `ALTER TABLE sessions ADD COLUMN videoAspect REAL;`,
-      ]) {
+      // Every prior version of this ran all 8 ALTERs unconditionally on EVERY
+      // cold start, each one guaranteed to fail with "column already exists"
+      // after the first time it ever succeeded — 8 wasted round-trips sitting
+      // directly in front of the very first DB query, forever. Checking the
+      // real schema once and only running what's actually missing turns that
+      // into a single read on every launch after the first migration.
+      const existing = new Set((await db.getAllAsync<{ name: string }>(`PRAGMA table_info(sessions);`)).map((c) => c.name));
+      for (const col of MIGRATION_COLUMNS) {
+        if (existing.has(col.name)) continue;
         try {
-          await db.execAsync(ddl);
-        } catch {
-          // Column already exists.
-        }
+          await db.execAsync(col.ddl);
+        } catch (e: unknown) { const msg = String(e); if (!msg.includes('duplicate column') && !msg.includes('already exists')) { throw e; } }
       }
       return db;
     });
@@ -77,14 +110,16 @@ export async function saveSession(
   videoUri: string | null,
   timeline: TimelineSample[] = [],
   videoAspect?: number,
-): Promise<void> {
+  note?: string | null,
+): Promise<boolean> {
+  try {
   const db = await getDb();
   const score = scoreSession(summary);
   const trimmed = trimTimelineForStorage(summary, timeline);
   await db.runAsync(
     `INSERT INTO sessions
-      (id, exerciseId, exerciseName, createdAt, durationMs, reps, holdSeconds, avgBottomAngle, cues, videoUri, score, firstActionMs, lastActionMs, timeline, videoAspect)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      (id, exerciseId, exerciseName, createdAt, durationMs, reps, holdSeconds, avgBottomAngle, cues, videoUri, score, firstActionMs, lastActionMs, timeline, videoAspect, totalReps, totalHoldSeconds, segments, activeMs, note)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     id,
     summary.exerciseId,
     exerciseName,
@@ -100,13 +135,28 @@ export async function saveSession(
     summary.lastActionMs,
     JSON.stringify(trimmed),
     videoAspect ?? null,
+    summary.totalReps,
+    summary.totalHoldSeconds,
+    JSON.stringify(summary.segments),
+    summary.activeMs,
+    note ?? null,
   );
+  return true; } catch { return false; }
 }
 
-type Row = Omit<SessionRecord, 'cues' | 'timeline'> & { cues: string; timeline: string | null };
+type Row = Omit<SessionRecord, 'cues' | 'timeline' | 'segments'> & {
+  cues: string;
+  timeline: string | null;
+  segments: string | null;
+};
 
 function toRecord(row: Row): SessionRecord {
-  return { ...row, cues: safeParseCues(row.cues), timeline: safeParseTimeline(row.timeline) };
+  return {
+    ...row,
+    cues: safeParseCues(row.cues),
+    timeline: safeParseTimeline(row.timeline),
+    segments: safeParseSegments(row.segments),
+  };
 }
 
 // Stats/list views (Insights, "best run" lookups) only ever read
@@ -117,7 +167,21 @@ function toRecord(row: Row): SessionRecord {
 // needs the real timeline (single-session replay, full-fidelity export) uses
 // getSession/listSessionsFull instead.
 const LIST_COLUMNS =
-  'id, exerciseId, exerciseName, createdAt, durationMs, reps, holdSeconds, avgBottomAngle, cues, videoUri, score, firstActionMs, lastActionMs, videoAspect';
+  'id, exerciseId, exerciseName, createdAt, durationMs, reps, holdSeconds, avgBottomAngle, cues, videoUri, score, firstActionMs, lastActionMs, videoAspect, totalReps, totalHoldSeconds, segments, activeMs, note';
+
+/**
+ * Just the timestamps, for callers that only need to compute a streak (e.g.
+ * the Train tab header) — avoids pulling the full session shape (cues, video
+ * uri, segments, etc.) just to check "did I train recently."
+ */
+export async function listRecentSessionDates(limit = 400): Promise<number[]> {
+  const db = await getDb();
+  const rows = await db.getAllAsync<{ createdAt: number }>(
+    `SELECT createdAt FROM sessions ORDER BY createdAt DESC LIMIT ?`,
+    limit,
+  );
+  return rows.map((r) => r.createdAt);
+}
 
 export async function listSessions(limit = 100): Promise<SessionRecord[]> {
   const db = await getDb();
@@ -125,7 +189,54 @@ export async function listSessions(limit = 100): Promise<SessionRecord[]> {
     `SELECT ${LIST_COLUMNS} FROM sessions ORDER BY createdAt DESC LIMIT ?`,
     limit,
   );
-  return rows.map((row) => ({ ...row, cues: safeParseCues(row.cues), timeline: [] }));
+  return rows.map((row) => ({
+    ...row,
+    cues: safeParseCues(row.cues),
+    segments: safeParseSegments(row.segments),
+    timeline: [],
+  }));
+}
+
+/**
+ * Same shape as `listSessions`, but scoped to one exercise via SQL instead of
+ * fetching+parsing the whole history client-side — used anywhere that only
+ * needs one exercise's best/recent result (exercise detail, pre-set "beat
+ * your best" lookups) instead of every session ever logged.
+ */
+export async function listSessionsForExercise(exerciseId: string, limit = 100): Promise<SessionRecord[]> {
+  const db = await getDb();
+  const rows = await db.getAllAsync<Omit<Row, 'timeline'>>(
+    `SELECT ${LIST_COLUMNS} FROM sessions WHERE exerciseId = ? ORDER BY createdAt DESC LIMIT ?`,
+    exerciseId,
+    limit,
+  );
+  return rows.map((row) => ({
+    ...row,
+    cues: safeParseCues(row.cues),
+    segments: safeParseSegments(row.segments),
+    timeline: [],
+  }));
+}
+
+/**
+ * Same shape as `listSessionsForExercise`, but across every exercise — the
+ * most recent `limit` sessions, for iCloud backup (`src/lib/icloudSync.ts`).
+ * Callers there narrow this down to `CloudSessionRecord` themselves (drop
+ * `videoUri`); this just avoids hauling the heavy `timeline` column into
+ * memory for something that's about to be dropped anyway.
+ */
+export async function listSessionsForSync(limit: number): Promise<SessionRecord[]> {
+  const db = await getDb();
+  const rows = await db.getAllAsync<Omit<Row, 'timeline'>>(
+    `SELECT ${LIST_COLUMNS} FROM sessions ORDER BY createdAt DESC LIMIT ?`,
+    limit,
+  );
+  return rows.map((row) => ({
+    ...row,
+    cues: safeParseCues(row.cues),
+    segments: safeParseSegments(row.segments),
+    timeline: [],
+  }));
 }
 
 export async function getSession(id: string): Promise<SessionRecord | null> {
@@ -168,8 +279,8 @@ export async function insertIfMissing(rec: CloudSessionRecord): Promise<boolean>
   if (existing) return false;
   await db.runAsync(
     `INSERT INTO sessions
-      (id, exerciseId, exerciseName, createdAt, durationMs, reps, holdSeconds, avgBottomAngle, cues, videoUri, score, firstActionMs, lastActionMs, timeline, videoAspect)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      (id, exerciseId, exerciseName, createdAt, durationMs, reps, holdSeconds, avgBottomAngle, cues, videoUri, score, firstActionMs, lastActionMs, timeline, videoAspect, totalReps, totalHoldSeconds, segments, activeMs)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     rec.id,
     rec.exerciseId,
     rec.exerciseName,
@@ -185,6 +296,10 @@ export async function insertIfMissing(rec: CloudSessionRecord): Promise<boolean>
     rec.lastActionMs,
     JSON.stringify([]),
     null,
+    rec.totalReps,
+    rec.totalHoldSeconds,
+    JSON.stringify(rec.segments),
+    rec.activeMs,
   );
   return true;
 }
@@ -204,4 +319,43 @@ function safeParseTimeline(s: string | null): TimelineSample[] {
   } catch {
     return [];
   }
+}
+
+function safeParseSegments(s: string | null): { startMs: number; endMs: number; reps: number }[] {
+  if (!s) return [];
+  try {
+    return JSON.parse(s) as { startMs: number; endMs: number; reps: number }[];
+  } catch {
+    return [];
+  }
+}
+
+// ── Body measurements ──
+
+export async function saveMeasurement(m: Omit<MeasurementRecord, 'id'> & { id?: string }): Promise<void> {
+  const db = await getDb();
+  const id = m.id ?? `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  await db.runAsync(
+    `INSERT OR REPLACE INTO body_measurements (id, createdAt, weightKg, chestCm, waistCm, armCm, thighCm) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    id, m.createdAt, m.weightKg ?? null, m.chestCm ?? null, m.waistCm ?? null, m.armCm ?? null, m.thighCm ?? null,
+  );
+}
+
+export async function listMeasurements(limit = 100): Promise<MeasurementRecord[]> {
+  const db = await getDb();
+  return db.getAllAsync<MeasurementRecord>(
+    `SELECT * FROM body_measurements ORDER BY createdAt DESC LIMIT ?`, limit,
+  );
+}
+
+export async function listMeasurementsAsc(limit = 100): Promise<MeasurementRecord[]> {
+  const db = await getDb();
+  return db.getAllAsync<MeasurementRecord>(
+    `SELECT * FROM body_measurements ORDER BY createdAt ASC LIMIT ?`, limit,
+  );
+}
+
+export async function deleteMeasurement(id: string): Promise<void> {
+  const db = await getDb();
+  await db.runAsync(`DELETE FROM body_measurements WHERE id = ?`, id);
 }

@@ -2,6 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useMemo, useState } from 'react';
 import { Modal, Pressable, StyleSheet, TextInput, View } from 'react-native';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { BackButton } from '@/components/BackButton';
 import { GoalPickerSheet } from '@/components/GoalPicker';
@@ -10,7 +11,8 @@ import { LockBadge } from '@/components/LockBadge';
 import { PrimaryButton } from '@/components/PrimaryButton';
 import { Screen } from '@/components/Screen';
 import { Text } from '@/components/Text';
-import { EXERCISES, getExercise } from '@/exercises/data';
+import { getExercise } from '@/exercises/data';
+import { useActiveExercises } from '@/exercises/registry';
 import type { Exercise } from '@/exercises/types';
 import { searchExercises } from '@/lib/search';
 import { makeId } from '@/lib/format';
@@ -19,8 +21,6 @@ import { useWorkoutDraft } from '@/store/workoutDraft';
 import { useWorkouts, type ExerciseGoal, type WorkoutStep } from '@/store/workouts';
 import { Radius, Spacing } from '@/theme/palette';
 import { useTheme } from '@/theme/useTheme';
-
-const TRACKABLE = EXERCISES.filter((e) => e.tracked);
 
 function defaultGoal(ex: Exercise): ExerciseGoal {
   return ex.mode === 'hold' ? { type: 'hold', values: [20] } : { type: 'reps', values: [10] };
@@ -47,7 +47,11 @@ export default function WorkoutBuilderScreen() {
   const [goalStepId, setGoalStepId] = useState<string | null>(null);
   const [query, setQuery] = useState('');
 
-  const results = useMemo(() => searchExercises(query, TRACKABLE), [query]);
+  const exercises = useActiveExercises();
+  const results = useMemo(
+    () => searchExercises(query, exercises.filter((e) => e.tracked)),
+    [query, exercises],
+  );
 
   const addStep = (ex: Exercise) => {
     setSteps((s) => [...s, { id: makeId(), exerciseSlug: ex.slug, goal: defaultGoal(ex) }]);
@@ -157,50 +161,58 @@ export default function WorkoutBuilderScreen() {
 
       <PrimaryButton
         label={isStart ? 'Start' : existing ? 'Save changes' : 'Save template'}
+        variant={isStart ? 'hero' : 'primary'}
+        icon={isStart ? <Ionicons name="arrow-forward" size={26} color={t.accent.onColor} /> : undefined}
         disabled={steps.length === 0}
         onPress={isStart ? start : save}
         style={{ marginTop: Spacing.xl }}
       />
 
-      {/* Exercise picker */}
+      {/* Exercise picker. RN's <Modal> presents in its own separate native
+          root on iOS — the app's own SafeAreaProvider (in the root layout)
+          doesn't reliably reach insets computed inside it, which is what let
+          the title render up under the notch/Dynamic Island. A SafeAreaProvider
+          scoped to just this modal fixes that. */}
       <Modal visible={pickerOpen} animationType="slide" onRequestClose={() => setPickerOpen(false)}>
-        <Screen scroll>
-          <View style={styles.headerRow}>
-            <Pressable onPress={() => setPickerOpen(false)} style={styles.closeBtn}>
-              <Ionicons name="close" size={22} color={t.ink.primary} />
-            </Pressable>
-            <Text variant="title">Add exercise</Text>
-          </View>
-          <View style={[styles.search, { backgroundColor: t.surface.raised, borderColor: t.ink.hairline }]}>
-            <Ionicons name="search" size={17} color={t.ink.muted} />
-            <TextInput
-              value={query}
-              onChangeText={setQuery}
-              placeholder="Search movements"
-              placeholderTextColor={t.ink.muted}
-              style={[styles.searchInput, { color: t.ink.primary }]}
-              autoCorrect={false}
-              autoCapitalize="none"
-            />
-          </View>
-          <View style={{ marginTop: Spacing.md }}>
-            <ListGroup>
-              {results.map((ex) => {
-                const unlocked = isExerciseUnlocked(ex.slug);
-                return (
-                  <ListRow
-                    key={ex.id}
-                    title={ex.name}
-                    subtitle={ex.summary}
-                    dimmed={!unlocked}
-                    onPress={unlocked ? () => addStep(ex) : undefined}
-                    right={unlocked ? undefined : <LockBadge />}
-                  />
-                );
-              })}
-            </ListGroup>
-          </View>
-        </Screen>
+        <SafeAreaProvider>
+          <Screen scroll>
+            <View style={styles.headerRow}>
+              <Pressable onPress={() => setPickerOpen(false)} style={styles.closeBtn}>
+                <Ionicons name="close" size={22} color={t.ink.primary} />
+              </Pressable>
+              <Text variant="title">Add exercise</Text>
+            </View>
+            <View style={[styles.search, { backgroundColor: t.surface.raised, borderColor: t.ink.hairline }]}>
+              <Ionicons name="search" size={17} color={t.ink.muted} />
+              <TextInput
+                value={query}
+                onChangeText={setQuery}
+                placeholder="Search movements"
+                placeholderTextColor={t.ink.muted}
+                style={[styles.searchInput, { color: t.ink.primary }]}
+                autoCorrect={false}
+                autoCapitalize="none"
+              />
+            </View>
+            <View style={{ marginTop: Spacing.md }}>
+              <ListGroup>
+                {results.map((ex) => {
+                  const unlocked = isExerciseUnlocked(ex.slug);
+                  return (
+                    <ListRow
+                      key={ex.id}
+                      title={ex.name}
+                      subtitle={ex.summary}
+                      dimmed={!unlocked}
+                      onPress={unlocked ? () => addStep(ex) : undefined}
+                      right={unlocked ? undefined : <LockBadge />}
+                    />
+                  );
+                })}
+              </ListGroup>
+            </View>
+          </Screen>
+        </SafeAreaProvider>
       </Modal>
 
       {/* Goal editor */}

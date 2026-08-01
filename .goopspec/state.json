@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "project": {
+    "name": "iso-form",
+    "initialized": "2026-07-28T22:41:57.655Z"
+  },
+  "workflow": {
+    "currentPhase": null,
+    "phase": "idle",
+    "mode": "standard",
+    "depth": "standard",
+    "researchOptIn": false,
+    "specLocked": false,
+    "acceptanceConfirmed": false,
+    "interviewComplete": false,
+    "interviewCompletedAt": null,
+    "currentWave": 0,
+    "totalWaves": 0,
+    "lastActivity": "2026-08-01T04:01:03.892Z",
+    "status": "idle"
+  },
+  "execution": {
+    "activeCheckpointId": null,
+    "completedPhases": [],
+    "pendingTasks": []
+  }
+}

@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { KeyboardAvoidingView, Modal, Platform, Pressable, StyleSheet, TextInput, View } from 'react-native';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 import { Text } from '@/components/Text';
 import { Feedback, Radius, Spacing } from '@/theme/palette';
@@ -54,9 +54,12 @@ export function GoalPickerSheet({
             <Text tone="secondary" style={{ textAlign: 'center' }}>
               {subtitle}
             </Text>
-            {/* key resets the picker's selection each time it's reopened for a
-                different step/exercise, instead of carrying stale taps over. */}
-            <GoalPicker key={title} presets={presets} unit={unit} initialValues={initialValues} onConfirm={onConfirm} />
+            {/* `visible` (below) is what actually resets the picker's selection
+                each time it's reopened — `key={title}` alone isn't enough
+                when the same title is reused for a screen that never changes
+                (e.g. a single exercise's own goal sheet), which used to let a
+                cleared/discarded selection silently survive to the next open. */}
+            <GoalPicker key={title} visible={visible} presets={presets} unit={unit} initialValues={initialValues} onConfirm={onConfirm} />
             {skipLabel && onSkip ? (
               <Pressable onPress={onSkip} style={{ marginTop: Spacing.xs }}>
                 <Text tone="secondary">{skipLabel}</Text>
@@ -75,15 +78,30 @@ export function GoalPicker({
   unit,
   initialValues = [],
   onConfirm,
+  visible,
 }: {
   presets: number[];
   unit: string;
   initialValues?: number[];
   onConfirm: (values: number[]) => void;
+  /** Resyncs the selection from `initialValues` every time this flips to
+   * true — without it, taps from a discarded-without-confirming previous
+   * open (or a goal that was cleared elsewhere) silently survive to the
+   * next time the sheet opens, since this component's own state otherwise
+   * only ever seeds from `initialValues` once, at mount. */
+  visible?: boolean;
 }) {
   const t = useTheme();
   const [selected, setSelected] = useState<number[]>(initialValues);
   const [custom, setCustom] = useState('');
+
+  useEffect(() => {
+    if (visible) {
+      setSelected(initialValues);
+      setCustom('');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible]);
 
   const toggle = (v: number) => setSelected((s) => (s.includes(v) ? s.filter((x) => x !== v) : [...s, v].sort((a, b) => a - b)));
 

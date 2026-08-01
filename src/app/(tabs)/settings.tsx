@@ -122,8 +122,8 @@ export default function SettingsScreen() {
         <View style={[styles.accentRow, { backgroundColor: t.surface.raised, borderColor: t.ink.hairline }]}>
           {(Object.keys(Accents) as AccentId[]).map((id) => {
             const selected = id === s.accent;
-            const color = id === 'mono' ? t.ink.primary : Accents[id].color;
-            const onColor = id === 'mono' ? t.surface.base : Accents[id].onColor;
+            const color = Accents[id].color;
+            const onColor = Accents[id].onColor;
             const label = Accents[id].label;
             return (
               <Pressable

@@ -1,4 +1,4 @@
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 /** Shared visual for both the render-error boundary and the global JS error
  * catcher — deliberately hardcoded colors, no theme/store dependency. */
@@ -33,5 +33,5 @@ const styles = StyleSheet.create({
   title: { color: '#FFFFFF', fontSize: 20, fontWeight: '800' },
   subtitle: { color: '#9A9AA1', fontSize: 14, marginBottom: 8 },
   label: { color: '#FF9F0A', fontSize: 12, fontWeight: '700', marginTop: 8, textTransform: 'uppercase' },
-  mono: { color: '#FFFFFF', fontSize: 12, fontFamily: 'Courier' },
+  mono: { color: '#FFFFFF', fontSize: 12, fontFamily: Platform.select({ ios: 'Courier', default: 'monospace' }) },
 });

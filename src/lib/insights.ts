@@ -49,6 +49,21 @@ function dayKey(ts: number): string {
   return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
 }
 
+/** Consecutive days with a session, counting back from today or yesterday —
+ * shared by the full Insights computation and any lighter-weight caller (e.g.
+ * the Train tab header) that only has timestamps, not full session records. */
+export function computeStreakDays(createdAts: number[], now: number = Date.now()): number {
+  const days = new Set(createdAts.map(dayKey));
+  let streakDays = 0;
+  const cursor = new Date(now);
+  if (!days.has(dayKey(cursor.getTime()))) cursor.setDate(cursor.getDate() - 1); // allow "yesterday" start
+  while (days.has(dayKey(cursor.getTime()))) {
+    streakDays += 1;
+    cursor.setDate(cursor.getDate() - 1);
+  }
+  return streakDays;
+}
+
 export function computeInsights(sessions: SessionRecord[], now: number = Date.now()): Insights {
   const weekAgo = now - 7 * 86_400_000;
   const week = sessions.filter((s) => s.createdAt >= weekAgo);
@@ -68,15 +83,7 @@ export function computeInsights(sessions: SessionRecord[], now: number = Date.no
     });
   }
 
-  // Streak: consecutive days with a session, counting back from today or yesterday.
-  const days = new Set(sessions.map((s) => dayKey(s.createdAt)));
-  let streakDays = 0;
-  const cursor = new Date(now);
-  if (!days.has(dayKey(cursor.getTime()))) cursor.setDate(cursor.getDate() - 1); // allow "yesterday" start
-  while (days.has(dayKey(cursor.getTime()))) {
-    streakDays += 1;
-    cursor.setDate(cursor.getDate() - 1);
-  }
+  const streakDays = computeStreakDays(sessions.map((s) => s.createdAt), now);
 
   // Muscle focus.
   const muscleCount = new Map<Muscle, number>();
@@ -95,13 +102,19 @@ export function computeInsights(sessions: SessionRecord[], now: number = Date.no
     const mode: 'reps' | 'hold' = s.reps > 0 ? 'reps' : 'hold';
     const value = mode === 'reps' ? s.reps : s.holdSeconds;
     if (value <= 0) continue;
-    const cur = bestMap.get(s.exerciseName);
+    // Keyed by exerciseId, not name, to match every other aggregation in
+    // this file (and lib/rank.ts) — two different exercises reusing a
+    // display name would otherwise silently merge their PB records.
+    const cur = bestMap.get(s.exerciseId);
     if (!cur || value > cur.value)
-      bestMap.set(s.exerciseName, { exerciseId: s.exerciseId, exerciseName: s.exerciseName, mode, value });
+      bestMap.set(s.exerciseId, { exerciseId: s.exerciseId, exerciseName: s.exerciseName, mode, value });
   }
   const bests = [...bestMap.values()].sort((a, b) => b.value - a.value);
 
-  const totalTimeMs = sessions.reduce((sum, x) => sum + x.durationMs, 0);
+  // Prefer activeMs (sum of every attempt's duration, rest excluded) — falls
+  // back to durationMs (wall-clock, includes rest) only for rows saved before
+  // activeMs existed.
+  const totalTimeMs = sessions.reduce((sum, x) => sum + (x.activeMs ?? x.durationMs), 0);
   const totalReps = sessions.reduce((sum, x) => sum + x.reps, 0);
 
   const scored = sessions.filter((s) => s.score != null) as (SessionRecord & { score: number })[];

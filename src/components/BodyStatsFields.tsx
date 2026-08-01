@@ -1,37 +1,27 @@
-import { useEffect, useState } from 'react';
-import { StyleSheet, TextInput, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 
+import { NumberField } from '@/components/NumberField';
 import { Text } from '@/components/Text';
 import { cmToFeetInches, feetInchesToCm, kgToLb, lbToKg, useProfile } from '@/store/profile';
 import { Radius, Spacing } from '@/theme/palette';
 import { useTheme } from '@/theme/useTheme';
 
+/** Height/weight/age entry, reading and writing `useProfile` directly — the
+ * one source of truth for body stats, shared by Settings and onboarding so
+ * filling this in during onboarding IS filling in Settings, not a separate
+ * copy of the same data. */
 export function BodyStatsFields() {
   const t = useTheme();
   const profile = useProfile();
   const imperial = profile.units === 'imperial';
 
-  const heightDisplay =
-    imperial && profile.heightCm != null
-      ? cmToFeetInches(profile.heightCm)
-      : null;
-  const weightDisplay =
-    imperial && profile.weightKg != null
-      ? Math.round(kgToLb(profile.weightKg))
-      : null;
+  const heightDisplay = profile.heightCm != null ? cmToFeetInches(profile.heightCm) : null;
+  const weightDisplay = profile.weightKg != null ? Math.round(kgToLb(profile.weightKg)) : null;
 
   return (
-    <View
-      style={[
-        styles.card,
-        {
-          borderColor: t.ink.hairline,
-          backgroundColor: t.surface.sunken,
-        },
-      ]}
-    >
-      <View style={styles.row}>
-        <Text variant="label" tone="muted" style={styles.label}>
+    <View style={[styles.bodyCard, { backgroundColor: t.surface.raised, borderColor: t.ink.hairline }]}>
+      <View style={styles.bodyRow}>
+        <Text variant="label" tone="muted" style={styles.bodyLabel}>
           Height
         </Text>
         {imperial ? (
@@ -64,27 +54,19 @@ export function BodyStatsFields() {
           />
         )}
       </View>
-      <View style={styles.row}>
-        <Text variant="label" tone="muted" style={styles.label}>
+      <View style={styles.bodyRow}>
+        <Text variant="label" tone="muted" style={styles.bodyLabel}>
           Weight
         </Text>
         <NumberField
-          value={
-            imperial
-              ? weightDisplay
-              : profile.weightKg != null
-                ? Math.round(profile.weightKg)
-                : null
-          }
+          value={imperial ? weightDisplay : profile.weightKg != null ? Math.round(profile.weightKg) : null}
           placeholder={imperial ? 'lb' : 'kg'}
           style={{ flex: 1 }}
-          onChange={(v) =>
-            profile.setWeightKg(v != null ? (imperial ? lbToKg(v) : v) : null)
-          }
+          onChange={(v) => profile.setWeightKg(v != null ? (imperial ? lbToKg(v) : v) : null)}
         />
       </View>
-      <View style={styles.row}>
-        <Text variant="label" tone="muted" style={styles.label}>
+      <View style={styles.bodyRow}>
+        <Text variant="label" tone="muted" style={styles.bodyLabel}>
           Age
         </Text>
         <NumberField
@@ -98,64 +80,14 @@ export function BodyStatsFields() {
   );
 }
 
-function NumberField({
-  value,
-  placeholder,
-  onChange,
-  style,
-}: {
-  value: number | null;
-  placeholder: string;
-  onChange: (v: number | null) => void;
-  style?: object;
-}) {
-  const t = useTheme();
-  const [text, setText] = useState(value != null ? String(value) : '');
-  useEffect(() => {
-    setText(value != null ? String(value) : '');
-  }, [value]);
-  return (
-    <TextInput
-      value={text}
-      onChangeText={(v) => {
-        setText(v);
-        if (v.trim() === '') {
-          onChange(null);
-          return;
-        }
-        const n = Number(v);
-        if (!Number.isNaN(n) && n >= 0) onChange(n);
-      }}
-      placeholder={placeholder}
-      placeholderTextColor={t.ink.muted}
-      keyboardType="number-pad"
-      style={[
-        {
-          height: 40,
-          borderRadius: Radius.md,
-          borderWidth: 1,
-          paddingHorizontal: Spacing.sm,
-          color: t.ink.primary,
-          borderColor: t.ink.hairline,
-        },
-        style,
-      ]}
-    />
-  );
-}
-
 const styles = StyleSheet.create({
-  card: {
+  bodyCard: {
     marginTop: Spacing.sm,
     padding: Spacing.md,
     borderRadius: Radius.md,
     borderWidth: 1,
     gap: Spacing.sm,
   },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.md,
-  },
-  label: { width: 60 },
+  bodyRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md },
+  bodyLabel: { width: 60 },
 });

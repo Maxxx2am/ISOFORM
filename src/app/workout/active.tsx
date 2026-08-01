@@ -1,23 +1,32 @@
 import { router, useLocalSearchParams } from 'expo-router';
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Alert } from 'react-native';
 
 import { ExerciseTracker, type ExerciseTrackerResult } from '@/components/ExerciseTracker';
+import { ExerciseSetupTip } from '@/components/ExerciseSetupTip';
 import { Screen } from '@/components/Screen';
 import { Text } from '@/components/Text';
 import { getExercise } from '@/exercises/data';
 import { bestSessionFor } from '@/lib/insights';
 import { makeId } from '@/lib/format';
+import { scoreSession } from '@/engine/sessionEngine';
 import { useSessionStore } from '@/store/session';
+import { useSettings } from '@/store/settings';
 import { FREE_EXERCISES, useSubscription } from '@/store/subscription';
+import { useChallengeStore } from '@/store/challenge';
 import type { ExerciseGoal } from '@/store/workouts';
-import { listSessions, saveSession } from '@/storage/db';
+import { listSessionsForExercise } from '@/storage/db';
 
 export default function ActiveWorkoutScreen() {
-  const { slug, goalType, goalValues } = useLocalSearchParams<{ slug: string; goalType?: string; goalValues?: string }>();
+  const { slug, goalType, goalValues, challengeId, challengeTarget } = useLocalSearchParams<{ slug: string; goalType?: string; goalValues?: string; challengeId?: string; challengeTarget?: string }>();
   const exercise = getExercise(slug);
   const hasAllAccess = useSubscription((s) => s.hasAllAccess);
   const setFinished = useSessionStore((s) => s.setFinished);
+  const dismissedTips = useSettings((s) => s.dismissedSetupTips);
+  const dismissSetupTip = useSettings((s) => s.dismissSetupTip);
+  const saveChallenge = useChallengeStore((s) => s.saveResult);
   const navigatedRef = useRef(false);
+  const [showTip, setShowTip] = useState(true);
 
   const parsedValues = goalValues
     ? goalValues.split(',').map(Number).filter((n) => !Number.isNaN(n) && n > 0)
@@ -33,6 +42,15 @@ export default function ActiveWorkoutScreen() {
     }
   }, [slug, hasAllAccess]);
 
+  useEffect(() => {
+    if (exercise && dismissedTips[exercise.slug]) setShowTip(false);
+  }, [exercise, dismissedTips]);
+
+  const handleTipContinue = useCallback((dontShowAgain: boolean) => {
+    if (dontShowAgain && exercise) dismissSetupTip(exercise.slug);
+    setShowTip(false);
+  }, [exercise, dismissSetupTip]);
+
   const onPrimaryAction = useCallback(
     async (result: ExerciseTrackerResult) => {
       if (navigatedRef.current || !exercise) return;
@@ -40,7 +58,7 @@ export default function ActiveWorkoutScreen() {
       try {
         const id = makeId();
         const createdAt = Date.now();
-        const priorBest = bestSessionFor(exercise.id, await listSessions().catch(() => []));
+        const priorBest = bestSessionFor(exercise.id, await listSessionsForExercise(exercise.id).catch(() => []));
         const previousBest = priorBest ? (priorBest.reps > 0 ? priorBest.reps : priorBest.holdSeconds) : null;
         setFinished({
           id,
@@ -52,15 +70,26 @@ export default function ActiveWorkoutScreen() {
           videoAspect: result.videoAspect,
           previousBest,
         });
-        // Awaited (not fire-and-forget): a quick second attempt's previousBest
-        // lookup must never race ahead of this write finishing.
-        await saveSession(id, exercise.name, createdAt, result.summary, result.videoUri, result.timeline, result.videoAspect).catch(() => {});
+        if (challengeId) {
+          saveChallenge({
+            date: new Date().toISOString().slice(0, 10),
+            challengeId,
+            exerciseSlug: slug,
+            target: challengeTarget ? Number(challengeTarget) : 0,
+            score: scoreSession(result.summary),
+            bestReps: result.summary.reps,
+            bestHoldSeconds: result.summary.holdSeconds,
+          });
+        }
+        // Nothing is written to history or uploaded yet — review/[id].tsx
+        // does that only when the user taps "Save workout".
         router.replace({ pathname: '/workout/review/[id]', params: { id } });
       } catch {
+        Alert.alert("Couldn't open review", 'Something went wrong wrapping up this set.');
         router.replace('/(tabs)');
       }
     },
-    [exercise, setFinished],
+    [exercise, setFinished, challengeId, slug, saveChallenge],
   );
 
   if (!exercise) {
@@ -69,6 +98,10 @@ export default function ActiveWorkoutScreen() {
         <Text>Exercise not found.</Text>
       </Screen>
     );
+  }
+
+  if (showTip && !dismissedTips[exercise.slug]) {
+    return <ExerciseSetupTip exercise={exercise} onContinue={handleTipContinue} />;
   }
 
   return <ExerciseTracker exercise={exercise} goal={goal} primaryActionLabel="Stop" primaryActionIcon="stop" onPrimaryAction={onPrimaryAction} />;

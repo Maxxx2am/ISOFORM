@@ -3,7 +3,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import type { ImageSourcePropType } from 'react-native';
 
-import type { ExerciseRank } from '@/lib/rank';
 import type { SessionRecord } from '@/storage/db';
 
 export type BadgeColor = 'brown' | 'steel' | 'copper' | 'lavender' | 'gold' | 'rainbow' | 'pink' | 'blue';
@@ -49,9 +48,6 @@ export const ACHIEVEMENT_BADGES: Record<BadgeColor, ImageSourcePropType> = {
 
 type AchievementContext = {
   sessions: SessionRecord[];
-  totalReps: number;
-  exercisesTrained: number;
-  ranks: ExerciseRank[];
 };
 
 export type Achievement = {
@@ -66,102 +62,66 @@ export type Achievement = {
   check: (ctx: AchievementContext) => boolean;
 };
 
-const DAY_MS = 86_400_000;
-
-function startOfDay(t: number): number {
-  const d = new Date(t);
-  d.setHours(0, 0, 0, 0);
-  return d.getTime();
+/** Lifetime reps across every session — reps only, not hold-seconds: 1
+ * second held is trivially easier to rack up than 1 rep, so blending the two
+ * into one total let hold-heavy training blow through these thresholds far
+ * faster than rep training ever could. Uses the ALL-attempts total
+ * (`totalReps`), falling back to the best-single-attempt field for rows
+ * saved before that column existed. */
+function trainingPoints(sessions: SessionRecord[]): number {
+  return sessions.reduce((sum, s) => sum + (s.totalReps ?? s.reps), 0);
 }
 
-/** Longest RUN of consecutive-day sessions ever, not just the current streak
- * (which resets the moment you miss a day) — a streak achievement should
- * stay earned even after the streak itself later breaks. */
-function longestStreakDaysEver(sessions: SessionRecord[]): number {
-  const days = [...new Set(sessions.map((s) => startOfDay(s.createdAt)))].sort((a, b) => a - b);
-  let longest = 0;
-  let run = 0;
-  let prev: number | null = null;
-  for (const day of days) {
-    run = prev != null && day - prev === DAY_MS ? run + 1 : 1;
-    longest = Math.max(longest, run);
-    prev = day;
-  }
-  return longest;
-}
+/** Five tiers of the SAME ladder (same icon, same metric) — only the
+ * threshold and badge color escalate — rather than five unrelated
+ * achievement types, this is one progression read top to bottom. */
+const LEVEL_ICON: keyof typeof Ionicons.glyphMap = 'barbell';
 
 export const ACHIEVEMENTS: Achievement[] = [
   {
-    id: 'first_workout',
-    title: 'First Set',
-    shortTitle: 'First Set',
-    description: 'Complete your very first tracked set.',
-    badge: 'brown',
-    icon: 'flag',
-    check: (ctx) => ctx.sessions.length > 0,
-  },
-  {
-    id: 'streak_7',
-    title: 'Week Streak',
-    shortTitle: '7-Day',
-    description: 'Train 7 days in a row.',
-    badge: 'steel',
-    icon: 'flame-outline',
-    check: (ctx) => longestStreakDaysEver(ctx.sessions) >= 7,
-  },
-  {
-    id: 'streak_30',
-    title: 'Month Streak',
-    shortTitle: '30-Day',
-    description: 'Train 30 days in a row.',
-    badge: 'copper',
-    icon: 'flame',
-    check: (ctx) => longestStreakDaysEver(ctx.sessions) >= 30,
-  },
-  {
-    id: 'reps_100',
-    title: 'Century',
-    shortTitle: '100',
+    id: 'level_1',
+    title: 'Getting Started',
+    shortTitle: 'Level 1',
     description: 'Rack up 100 lifetime reps.',
     badge: 'lavender',
-    icon: 'barbell-outline',
-    check: (ctx) => ctx.totalReps >= 100,
+    icon: LEVEL_ICON,
+    check: (ctx) => trainingPoints(ctx.sessions) >= 100,
   },
   {
-    id: 'well_rounded',
-    title: 'Well-Rounded',
-    shortTitle: 'Versatile',
-    description: 'Reach Silver or higher in 5 different exercises.',
-    badge: 'pink',
-    icon: 'shapes',
-    check: (ctx) => ctx.ranks.filter((r) => r.tierIndex >= 4).length >= 5,
-  },
-  {
-    id: 'gold_rank',
-    title: 'Going for Gold',
-    shortTitle: 'Gold IV',
-    description: 'Reach Gold IV — the very top tier — in any exercise.',
-    badge: 'gold',
-    icon: 'medal',
-    check: (ctx) => ctx.ranks.some((r) => r.tier === 'Gold IV'),
-  },
-  {
-    id: 'reps_1000',
-    title: 'Grand',
-    shortTitle: '1,000',
+    id: 'level_2',
+    title: 'Building Momentum',
+    shortTitle: 'Level 2',
     description: 'Rack up 1,000 lifetime reps.',
-    badge: 'blue',
-    icon: 'barbell',
-    check: (ctx) => ctx.totalReps >= 1000,
+    badge: 'pink',
+    icon: LEVEL_ICON,
+    check: (ctx) => trainingPoints(ctx.sessions) >= 1000,
   },
   {
-    id: 'reps_10000',
-    title: 'Ten Thousand',
-    shortTitle: '10,000',
+    id: 'level_3',
+    title: 'In the Grind',
+    shortTitle: 'Level 3',
+    description: 'Rack up 5,000 lifetime reps.',
+    badge: 'gold',
+    icon: LEVEL_ICON,
+    check: (ctx) => trainingPoints(ctx.sessions) >= 5000,
+  },
+  {
+    id: 'level_4',
+    title: 'Relentless',
+    shortTitle: 'Level 4',
     description: 'Rack up 10,000 lifetime reps.',
+    badge: 'blue',
+    icon: LEVEL_ICON,
+    check: (ctx) => trainingPoints(ctx.sessions) >= 10000,
+  },
+  {
+    id: 'level_5',
+    title: 'Legendary',
+    shortTitle: 'Level 5',
+    description: 'Rack up 25,000 lifetime reps.',
     badge: 'rainbow',
-    icon: 'trophy',
-    check: (ctx) => ctx.totalReps >= 10000,
+    icon: LEVEL_ICON,
+    check: (ctx) => trainingPoints(ctx.sessions) >= 25000,
   },
 ];
 

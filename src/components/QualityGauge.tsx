@@ -1,11 +1,28 @@
-import { useState } from 'react';
-import { StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
+import { memo, useEffect, useRef, useState } from 'react';
+import { Animated, Easing, StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
 
-import { Feedback } from '@/theme/palette';
+import { alpha, Feedback, Surface } from '@/theme/palette';
 
 /** Degrees off target beyond which it's counted as "as bad as it gets" — the
- * marker is already pinned to the bottom of the bar by this point. */
+ * marker is already pinned to the bottom of the bar by this point. Left
+ * untouched by the green-zone widening below — this sets how far the marker
+ * travels per degree of real deviation (its actual sensitivity/movement),
+ * which stays exactly as responsive as before. */
 const MAX_RELEVANT_DEVIATION = 55 / 180;
+
+/**
+ * closeness (0 = worst, 1 = dead-on-target) cutoffs between red/yellow/green.
+ * Was an even 1/3–2/3 split — device feedback was that a genuinely solid
+ * attempt kept reading as right on the edge of green instead of comfortably
+ * inside it. Widened green a bit (2/3 → 0.55, roughly ±18° → ±25° around
+ * target) WITHOUT changing MAX_RELEVANT_DEVIATION, so the marker swings the
+ * exact same distance for the same real angle change — only where the color
+ * boundary falls on that same travel shifts. Shared by every hold exercise
+ * (handstand, plank, front lever, planche...), so one change here widens all
+ * of them consistently.
+ */
+const WARN_CLOSENESS = 1 / 3;
+const GOOD_CLOSENESS = 0.55;
 
 // Fallback before the real height is measured (matches styles.gauge.height) —
 // see RepGauge's identical comment: callers can override the track's height
@@ -34,7 +51,9 @@ const CAP_CLEARANCE = 10;
  * measured in raw degrees near an edge. Measuring by deviation instead means
  * dead-on-target always reads as the top of green, regardless of the target.
  */
-export function QualityGauge({
+// Memoized — re-rendered every camera frame by ExerciseTracker; `target` is
+// derived once per exercise, so this mostly bails out except for `marker`.
+export const QualityGauge = memo(function QualityGauge({
   marker,
   target,
   visible,
@@ -48,13 +67,11 @@ export function QualityGauge({
 }) {
   const [trackHeight, setTrackHeight] = useState(DEFAULT_GAUGE_HEIGHT);
 
-  if (!visible) return null;
-
   const clampedMarker = Math.min(1, Math.max(0, marker));
   const clampedTarget = Math.min(1, Math.max(0, target));
   const deviation = Math.abs(clampedMarker - clampedTarget);
   const closeness = 1 - Math.min(1, deviation / MAX_RELEVANT_DEVIATION); // 1 = dead on target, 0 = way off
-  const color = closeness >= 2 / 3 ? Feedback.good : closeness >= 1 / 3 ? Feedback.warn : Feedback.bad;
+  const color = closeness >= GOOD_CLOSENESS ? Feedback.good : closeness >= WARN_CLOSENESS ? Feedback.warn : Feedback.bad;
 
   // Clamp the capsule's CENTER so its top/bottom edges never cross the
   // track's own edges — same fix as RepGauge, so both bars read consistently.
@@ -63,32 +80,52 @@ export function QualityGauge({
   const centerPx = Math.min(trackHeight - inset, Math.max(inset, closeness * trackHeight));
   const markerBottomPx = centerPx - half;
 
+  // Animated on the native UI thread (useNativeDriver) — see RepGauge's
+  // identical fix/comment. A JS-thread stall (starting text-to-speech is the
+  // confirmed case) used to show up as the marker instantly snapping to
+  // wherever the next frame said, which read as a glitch/freeze.
+  const animatedY = useRef(new Animated.Value(-markerBottomPx)).current;
+  useEffect(() => {
+    Animated.timing(animatedY, {
+      toValue: -markerBottomPx,
+      duration: 90,
+      easing: Easing.out(Easing.quad),
+      useNativeDriver: true,
+    }).start();
+  }, [animatedY, markerBottomPx]);
+
+  if (!visible) return null;
+
   return (
     <View
       style={[styles.gauge, style]}
       pointerEvents="none"
       onLayout={(e) => setTrackHeight(e.nativeEvent.layout.height)}
     >
-      {/* Three fixed, always-equal bands: red (worst) at the bottom, green (on
-          target) at the top. Explicit corner radii (matching the container's
-          14) on the outer two bands — overflow:hidden alone clips them, but
-          this guarantees the color fill's corners always trace the bar's own
-          rounded shape instead of reading as a sharp-edged rectangle inside it. */}
-      <View style={[styles.band, { bottom: '0%', height: '33.34%', backgroundColor: 'rgba(255,69,58,0.22)', borderBottomLeftRadius: 12, borderBottomRightRadius: 12 }]} />
-      <View style={[styles.band, { bottom: '33.34%', height: '33.33%', backgroundColor: 'rgba(255,159,10,0.22)' }]} />
-      <View style={[styles.band, { bottom: '66.67%', height: '33.33%', backgroundColor: 'rgba(48,209,88,0.22)', borderTopLeftRadius: 12, borderTopRightRadius: 12 }]} />
+      {/* Three bands sized off the SAME WARN_CLOSENESS/GOOD_CLOSENESS cutoffs
+          the marker's own color uses — red (worst) at the bottom, green (on
+          target) at the top, so the background band the marker sits in
+          always matches its own color, never a fixed even-thirds split that
+          could disagree with a tuned threshold. Explicit corner radii
+          (matching the container's 14) on the outer two bands —
+          overflow:hidden alone clips them, but this guarantees the color
+          fill's corners always trace the bar's own rounded shape instead of
+          reading as a sharp-edged rectangle inside it. */}
+      <View style={[styles.band, { bottom: '0%', height: `${WARN_CLOSENESS * 100}%`, backgroundColor: alpha(Feedback.bad, 0.22), borderBottomLeftRadius: 12, borderBottomRightRadius: 12 }]} />
+      <View style={[styles.band, { bottom: `${WARN_CLOSENESS * 100}%`, height: `${(GOOD_CLOSENESS - WARN_CLOSENESS) * 100}%`, backgroundColor: alpha(Feedback.warn, 0.22) }]} />
+      <View style={[styles.band, { bottom: `${GOOD_CLOSENESS * 100}%`, height: `${(1 - GOOD_CLOSENESS) * 100}%`, backgroundColor: alpha(Feedback.good, 0.22), borderTopLeftRadius: 12, borderTopRightRadius: 12 }]} />
 
-      <View
+      <Animated.View
         style={[
           styles.marker,
-          { bottom: markerBottomPx, borderColor: color, backgroundColor: `${color}33` },
+          { bottom: 0, transform: [{ translateY: animatedY }], borderColor: color, backgroundColor: `${color}33` },
         ]}
       >
         <View style={[styles.markerCenterLine, { backgroundColor: color }]} />
-      </View>
+      </Animated.View>
     </View>
   );
-}
+});
 
 const styles = StyleSheet.create({
   gauge: {
@@ -99,9 +136,9 @@ const styles = StyleSheet.create({
     height: 240,
     width: 28,
     borderRadius: 14,
-    backgroundColor: 'rgba(20,20,24,0.65)',
+    backgroundColor: alpha(Surface.raised, 0.65),
     borderWidth: 1.5,
-    borderColor: 'rgba(255,255,255,0.15)',
+    borderColor: alpha('#FFFFFF', 0.15),
     overflow: 'hidden',
   },
   band: { position: 'absolute', left: 0, right: 0 },
