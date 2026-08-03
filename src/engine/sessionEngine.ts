@@ -1,7 +1,7 @@
 import type { CueSeverity, Exercise } from '@/exercises/types';
 import type { Landmark, PoseFrame } from '@/pose/types';
 import { FormAnalyzer, type CueTally } from '@/engine/formAnalyzer';
-import { AdaptiveRepCounter, type RepEvent } from '@/engine/repCounter';
+import { AdaptiveRepCounter, RepCounter, type RepEvent } from '@/engine/repCounter';
 
 /** A stored sample for replay: landmarks + which cue (if any) was active. */
 export type TimelineSample = {
@@ -180,7 +180,7 @@ export type SessionSummary = {
 };
 
 export class SessionEngine {
-  private readonly reps: AdaptiveRepCounter;
+  private readonly reps: AdaptiveRepCounter | RepCounter;
   private readonly form: FormAnalyzer;
   private readonly primaryAngle: string;
   private timeline: TimelineSample[] = [];
@@ -218,7 +218,10 @@ export class SessionEngine {
   state: LiveState = { reps: 0, bestReps: 0, holdSeconds: 0, bestHoldSeconds: 0, attempts: 0, activeCue: null, activeSeverity: null, activeSay: null, activeBodyPart: null, lastRep: null, repMiss: null, formQuality: 100, cleanReps: 0, inPosition: false, repThresholds: null };
 
   constructor(private readonly exercise: Exercise) {
-    this.reps = new AdaptiveRepCounter(exercise.rep ?? { angle: '', downBelow: 0, upAbove: 0 });
+    const repConfig = exercise.rep ?? { angle: '', downBelow: 0, upAbove: 0 };
+    // Adaptive calibration is opt-in. A shaky first athlete or a bad setup
+    // frame must never rewrite the thresholds used by the next attempt.
+    this.reps = exercise.adaptiveRep ? new AdaptiveRepCounter(repConfig) : new RepCounter(repConfig);
     this.form = new FormAnalyzer(exercise);
     this.primaryAngle = exercise.rep?.angle ?? exercise.hold?.angle ?? '';
   }
