@@ -1,5 +1,6 @@
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
+import * as Updates from 'expo-updates';
 import { StatusBar } from 'expo-status-bar';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { useEffect, useState } from 'react';
@@ -47,6 +48,19 @@ export default function RootLayout() {
   useEffect(() => {
     preloadAppImages();
     getSessions();
+  }, []);
+
+  useEffect(() => {
+    if (__DEV__ || !Updates.isEnabled) return;
+    let alive = true;
+    void Updates.checkForUpdateAsync()
+      .then(async (result) => {
+        if (!alive || !result.isAvailable) return;
+        await Updates.fetchUpdateAsync();
+        if (alive) await Updates.reloadAsync();
+      })
+      .catch(() => {});
+    return () => { alive = false; };
   }, []);
 
   // Check for remote exercise content (GitHub-hosted overrides/additions/
