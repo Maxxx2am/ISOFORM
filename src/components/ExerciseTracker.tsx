@@ -73,6 +73,7 @@ export function ExerciseTracker({
   const [landmarks, setLandmarks] = useState<Landmark[] | null>(null);
   const [live, setLive] = useState<LiveState>({
     reps: 0,
+    totalReps: 0,
     bestReps: 0,
     holdSeconds: 0,
     bestHoldSeconds: 0,
@@ -321,9 +322,16 @@ export function ExerciseTracker({
   }, [phase, cameraActive, finishSet]);
 
   useEffect(() => {
-    if (phase !== 'tracking' || !challenge || challenge.mode !== 'max-time') return;
-    if (elapsed >= challenge.minimum * 1000) onPrimaryPress();
-  }, [phase, challenge, elapsed, onPrimaryPress]);
+    if (phase !== 'tracking' || !challenge) return;
+    const reachedGoal = challenge.mode === 'max-time'
+      ? elapsed >= challenge.minimum * 1000
+      : challenge.mode === 'rep-target'
+        ? live.totalReps >= challenge.minimum
+        : challenge.mode === 'hold-target'
+          ? live.holdSeconds >= challenge.minimum
+          : false;
+    if (reachedGoal) onPrimaryPress();
+  }, [phase, challenge, elapsed, live.totalReps, live.holdSeconds, onPrimaryPress]);
 
   const isHold = exercise.mode === 'hold';
   const metricValue = isHold ? `${live.holdSeconds}s` : String(live.reps);
@@ -340,7 +348,7 @@ export function ExerciseTracker({
       ? Math.min(challenge.minimum, Math.floor(elapsed / 1000))
       : isHold
         ? live.holdSeconds
-        : live.reps
+        : live.totalReps
     : 0;
   const challengeRemaining = challenge ? Math.max(0, challenge.minimum - challengeCurrent) : 0;
   const challengeDone = challenge != null && challengeRemaining === 0;

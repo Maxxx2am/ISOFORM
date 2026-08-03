@@ -64,6 +64,8 @@ const REP_GATE_SETTLE_MS = 800;
 export type LiveState = {
   /** Reps in the CURRENT attempt (for gated moves like HSPU; total otherwise). */
   reps: number;
+  /** All completed reps across attempts in this session. */
+  totalReps: number;
   /** Best rep streak across attempts so far. */
   bestReps: number;
   /** Seconds held in the CURRENT attempt (resets to 0 when you fall). */
@@ -217,7 +219,7 @@ export class SessionEngine {
    * L-sit) doesn't immediately close the attempt. */
   private holdGateLastTrue: number | null = null;
 
-  state: LiveState = { reps: 0, bestReps: 0, holdSeconds: 0, bestHoldSeconds: 0, attempts: 0, activeCue: null, activeSeverity: null, activeSay: null, activeBodyPart: null, lastRep: null, repMiss: null, formQuality: 100, cleanReps: 0, inPosition: false, repThresholds: null };
+  state: LiveState = { reps: 0, totalReps: 0, bestReps: 0, holdSeconds: 0, bestHoldSeconds: 0, attempts: 0, activeCue: null, activeSeverity: null, activeSay: null, activeBodyPart: null, lastRep: null, repMiss: null, formQuality: 100, cleanReps: 0, inPosition: false, repThresholds: null };
 
   constructor(private readonly exercise: Exercise) {
     const repConfig = exercise.rep ?? { angle: '', downBelow: 0, upAbove: 0 };
@@ -373,8 +375,10 @@ export class SessionEngine {
     this.timeline.push({ t, landmarks: frame.landmarks.map(lm => ({ x: lm.x, y: lm.y, z: lm.z, visibility: lm.visibility })), activeCue: activeRule?.cue ?? null, reps: this.curReps });
 
     const curMs = this.curStart != null ? this.curLast - this.curStart : 0;
+    const totalReps = this.attempts.reduce((sum, attempt) => sum + attempt.reps, 0) + this.curReps;
     this.state = {
       reps: this.curReps,
+      totalReps,
       bestReps: Math.max(this.bestRepsSoFar, this.curReps),
       holdSeconds: Math.floor(curMs / 1000),
       bestHoldSeconds: Math.floor(Math.max(this.bestMs, curMs) / 1000),
