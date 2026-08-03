@@ -336,16 +336,6 @@ export default function SettingsScreen() {
         </ListGroup>
       </View>
 
-      <View style={{ marginTop: Spacing.lg }}>
-        <SectionLabel>Privacy</SectionLabel>
-        <ListGroup>
-          <ListRow
-            title="Everything stays on your phone"
-            subtitle="No account. No cloud. Pose tracking and video never leave the device."
-          />
-        </ListGroup>
-      </View>
-
       {/* Dev / testing tools */}
       <View style={{ marginTop: Spacing.lg }}>
         <SectionLabel>Developer</SectionLabel>
