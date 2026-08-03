@@ -23,6 +23,7 @@ function mergeList(list: Exercise[], ov: RemoteOverrides): Exercise[] {
 }
 
 type RegistryState = {
+  exercises: Exercise[];
   remoteVersion: number;
   lastSeenVersion: number;
   lastCheckedAt: number | null;
@@ -34,6 +35,7 @@ type RegistryState = {
 };
 
 const store = create<RegistryState>((set, get) => ({
+  exercises: EXERCISES,
   remoteVersion: 0,
   lastSeenVersion: 0,
   lastCheckedAt: null,
@@ -44,10 +46,16 @@ const store = create<RegistryState>((set, get) => ({
     if (get().refreshing) return;
     set({ refreshing: true });
     try {
-      const resp = await fetch(REMOTE);
+      // Raw GitHub responses can be cached briefly; updates are user-facing,
+      // so avoid making the app wait for a stale CDN response.
+      const resp = await fetch(`${REMOTE}?v=${Date.now()}`);
       if (resp.ok) {
         const m: Manifest = await resp.json();
-        if (m.overrides) setActiveExercises(mergeList(EXERCISES, m.overrides));
+        if (m.overrides) {
+          const exercises = mergeList(EXERCISES, m.overrides);
+          setActiveExercises(exercises);
+          set({ exercises });
+        }
         set({ remoteVersion: m.version ?? 0, changelog: m.changelog ?? [], lastCheckedAt: Date.now() });
       }
     } catch {}
@@ -64,6 +72,7 @@ const store = create<RegistryState>((set, get) => ({
 
   markChangelogSeen: async () => {
     set({ lastSeenVersion: get().remoteVersion });
+    try { await AsyncStorage.setItem(KEY, JSON.stringify({ seen: get().lastSeenVersion, checked: get().lastCheckedAt, log: get().changelog })); } catch {}
   },
 }));
 
@@ -76,8 +85,8 @@ const store = create<RegistryState>((set, get) => ({
 })();
 
 export const useExerciseRegistry = store;
-export function useActiveExercises() { return EXERCISES; }
-export const getActiveExercises = () => EXERCISES;
+export function useActiveExercises() { return store((s) => s.exercises); }
+export const getActiveExercises = () => store.getState().exercises;
 
 let autoStarted = false;
 export function startAutoRefresh() { if (!autoStarted) { autoStarted = true; store.getState().refresh(); } }
