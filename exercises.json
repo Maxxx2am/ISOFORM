@@ -1,11 +1,11 @@
 {
-  "version": 4,
+  "version": 5,
   "changelog": [
     {
-      "version": 4,
+      "version": 5,
       "date": "2026-08-03",
       "title": "Tracking accuracy improvements",
-      "body": "- Handstand holds stop immediately when your feet touch the floor\n- Wall sit pauses when the squat position is lost\n- Squats require a meaningful parallel-depth bend\n- Jump squat and HSPU lockout zones are easier to reach\n- Pistol squat now uses a front view to track both legs\n- Superman hold requires a real limb lift\n- Mountain climbers accept a natural plank return"
+      "body": "- Rep thresholds no longer get poisoned by a glitchy first attempt\n- Handstand holds stop immediately when your feet touch the floor\n- Wall sit pauses when the squat position is lost\n- Squats require a meaningful parallel-depth bend\n- Jump squat and HSPU lockout zones are easier to reach\n- Pistol squat now uses a front view to track both legs\n- Superman hold requires a real limb lift\n- Mountain climbers accept a natural plank return"
     },
     {
       "version": 1,
