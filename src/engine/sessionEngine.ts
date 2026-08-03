@@ -213,7 +213,7 @@ export class SessionEngine {
   /** Frame-time the gate last WAS true for a hold exercise — drives
    * HOLD_GATE_DEBOUNCE_MS so a brief gate flicker (arm hiding chest in
    * L-sit) doesn't immediately close the attempt. */
-  private holdGateLastTrue = 0;
+  private holdGateLastTrue: number | null = null;
 
   state: LiveState = { reps: 0, bestReps: 0, holdSeconds: 0, bestHoldSeconds: 0, attempts: 0, activeCue: null, activeSeverity: null, activeSay: null, activeBodyPart: null, lastRep: null, repMiss: null, formQuality: 100, cleanReps: 0, inPosition: false, repThresholds: null };
 
@@ -340,13 +340,18 @@ export class SessionEngine {
       }
     } else if (this.exercise.mode === 'hold' && this.exercise.hold) {
       const a = rawAngles[this.exercise.hold.angle];
-      const rawValid = gateOk && a != null && a >= this.exercise.hold.minOk && a <= this.exercise.hold.maxOk;
+      const hardGateBreak = this.exercise.family === 'handstand' && !rawGateOk;
       // Debounce gate closing for holds — a half-second tracking glitch
       // (arm hiding chest in L-sit, brief landmark loss in handstand) must
       // not reset the entire attempt.
-      if (rawGateOk) this.holdGateLastTrue = frame.t;
-      const gateDebounced = frame.t - this.holdGateLastTrue < HOLD_GATE_DEBOUNCE_MS;
-      const valid = (gateOk || gateDebounced) && a != null && a >= this.exercise.hold.minOk && a <= this.exercise.hold.maxOk;
+      if (hardGateBreak) {
+        // Feet on the floor is not a tracking glitch. End the attempt now so
+        // kicking back up starts a fresh hold instead of extending the old one.
+        if (this.curStart != null) this.closeAttempt();
+        this.holdGateLastTrue = null;
+      } else if (rawGateOk) this.holdGateLastTrue = frame.t;
+      const gateDebounced = this.holdGateLastTrue != null && frame.t - this.holdGateLastTrue < HOLD_GATE_DEBOUNCE_MS;
+      const valid = !hardGateBreak && (gateOk || gateDebounced) && a != null && a >= this.exercise.hold.minOk && a <= this.exercise.hold.maxOk;
       if (valid) {
         if (this.curStart == null || t - this.curLast > HOLD_BREAK_MS) {
           if (this.curStart != null) this.closeAttempt();
@@ -600,7 +605,7 @@ export function scoreSession(s: SessionSummary): number {
     // 12 reps = 100pts. Past 12, logarithmic scaling so 50 reps ≈ 120+.
     parts.push(Math.round(Math.min(130, 100 + 20 * Math.log2(Math.max(1, s.reps / 12)))));
   }
-  return parts.length ? Math.round(mean(parts)) : 0;
+  return parts.length ? Math.max(0, Math.min(100, Math.round(mean(parts)))) : 0;
 }
 
 function mean(xs: number[]): number {
