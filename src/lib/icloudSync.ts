@@ -11,6 +11,7 @@ export const useSyncStatus = create<SyncStatus>(() => ({ lastSyncedAt: null, syn
 
 type CloudBlob = {
   updatedAt: number;
+  syncEnabled: boolean;
   settings: Pick<ReturnType<typeof useSettings.getState>, 'hapticCues' | 'repHaptics' | 'repDing' | 'voiceCoach' | 'mirrorFrontCamera' | 'countdownSec' | 'cameraFacing' | 'workoutAlertStyle'>;
   profile: Pick<ReturnType<typeof useProfile.getState>, 'heightCm' | 'weightKg' | 'units' | 'sex' | 'age'>;
   sessions: CloudSessionRecord[];
@@ -50,6 +51,7 @@ function snapshot(): Omit<CloudBlob, 'updatedAt' | 'sessions'> {
   const settings = useSettings.getState();
   const profile = useProfile.getState();
   return {
+    syncEnabled: true,
     settings: {
       hapticCues: settings.hapticCues,
       repHaptics: settings.repHaptics,
@@ -104,7 +106,6 @@ export function schedulePushToCloud(): void {
 }
 
 export async function pullFromCloud(): Promise<void> {
-  if (!useSettings.getState().iCloudSyncEnabled) return;
   const storage = getCloudStorage();
   if (!storage) return;
   useSyncStatus.setState({ syncing: true });
@@ -114,6 +115,7 @@ export async function pullFromCloud(): Promise<void> {
     const blob = JSON.parse(raw) as Partial<CloudBlob>;
     if (blob.settings) {
       const local = useSettings.getState();
+      if (blob.syncEnabled) local.setICloudSyncEnabled(true);
       if (blob.settings.hapticCues != null) local.setHapticCues(blob.settings.hapticCues);
       if (blob.settings.repHaptics != null) local.setRepHaptics(blob.settings.repHaptics);
       if (blob.settings.repDing != null) local.setRepDing(blob.settings.repDing);

@@ -13,7 +13,7 @@ import { startAutoRefresh } from '@/exercises/registry';
 import { installGlobalErrorHandler, onFatalError } from '@/lib/globalErrorHandler';
 import { preloadAppImages } from '@/lib/preloadAssets';
 import { getSessions } from '@/lib/sessionCache';
-import '@/lib/icloudSync';
+import { pullFromCloud } from '@/lib/icloudSync';
 import { useOnboarding } from '@/store/onboarding';
 import { useTheme } from '@/theme/useTheme';
 import { Text } from '@/components/Text';
@@ -74,6 +74,12 @@ function ThemedRoot() {
   const hasOnboarded = useOnboarding((s) => s.hasOnboarded);
   const hasHydrated = useOnboarding((s) => s.hasHydrated);
   const setHasOnboarded = useOnboarding((s) => s.setHasOnboarded);
+
+  useEffect(() => {
+    // Wait until persisted local stores have hydrated before applying a cloud
+    // restore, otherwise AsyncStorage hydration can overwrite the restored data.
+    if (hasHydrated) void pullFromCloud();
+  }, [hasHydrated]);
 
   return (
     <GestureHandlerRootView style={{ flex: 1, backgroundColor: t.surface.base }}>
