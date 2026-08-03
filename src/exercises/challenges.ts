@@ -219,8 +219,9 @@ export function scoreChallenge(
 /** A saved result is only complete when it belongs to today's challenge and
  * actually satisfies that challenge's minimum. Older builds could persist a
  * zero-value result, so the home card must not trust history blindly. */
-export function isChallengeComplete(challenge: DailyChallenge, result: { challengeId: string; bestReps: number; bestHoldSeconds: number }): boolean {
+export function isChallengeComplete(challenge: DailyChallenge, result: { challengeId: string; bestReps: number; totalReps?: number; durationSeconds?: number; bestHoldSeconds: number }): boolean {
   if (result.challengeId !== challenge.id) return false;
+  if (challenge.mode === 'max-time') return (result.durationSeconds ?? 0) >= challenge.minimum;
   const value = challenge.mode === 'max-hold' || challenge.mode === 'hold-target'
     ? result.bestHoldSeconds
     : result.bestReps;

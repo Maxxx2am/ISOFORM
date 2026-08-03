@@ -1,5 +1,5 @@
 import { router, useLocalSearchParams } from 'expo-router';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert } from 'react-native';
 
 import { ExerciseTracker, type ExerciseTrackerResult } from '@/components/ExerciseTracker';
@@ -18,7 +18,16 @@ import type { ExerciseGoal } from '@/store/workouts';
 import { listSessionsForExercise } from '@/storage/db';
 
 export default function ActiveWorkoutScreen() {
-  const { slug, goalType, goalValues, challengeId, challengeTarget } = useLocalSearchParams<{ slug: string; goalType?: string; goalValues?: string; challengeId?: string; challengeTarget?: string }>();
+  const { slug, goalType, goalValues, challengeId, challengeTarget, challengeMode, challengeMinimum, challengeMinimumLabel } = useLocalSearchParams<{
+    slug: string;
+    goalType?: string;
+    goalValues?: string;
+    challengeId?: string;
+    challengeTarget?: string;
+    challengeMode?: string;
+    challengeMinimum?: string;
+    challengeMinimumLabel?: string;
+  }>();
   const exercise = getExercise(slug);
   const hasAllAccess = useSubscription((s) => s.hasAllAccess);
   const setFinished = useSessionStore((s) => s.setFinished);
@@ -35,6 +44,12 @@ export default function ActiveWorkoutScreen() {
     (goalType === 'reps' || goalType === 'hold') && parsedValues.length > 0
       ? { type: goalType, values: parsedValues }
       : undefined;
+  const challenge = useMemo(
+    () => challengeId && challengeMode && challengeMinimum
+      ? { mode: challengeMode, minimum: Number(challengeMinimum), minimumLabel: challengeMinimumLabel ?? 'reps' }
+      : undefined,
+    [challengeId, challengeMode, challengeMinimum, challengeMinimumLabel],
+  );
 
   useEffect(() => {
     if (slug && !hasAllAccess && !FREE_EXERCISES.includes(slug)) {
@@ -70,7 +85,11 @@ export default function ActiveWorkoutScreen() {
           videoAspect: result.videoAspect,
           previousBest,
         });
-        if (challengeId) {
+        const challengeValue = exercise.mode === 'hold' ? result.summary.holdSeconds : result.summary.totalReps;
+        const challengeMet = !challenge || (challengeMode === 'max-time'
+          ? result.summary.durationMs >= challenge.minimum * 1000
+          : challengeValue >= challenge.minimum);
+        if (challengeId && challenge && challengeMet) {
           saveChallenge({
             date: new Date().toISOString().slice(0, 10),
             challengeId,
@@ -78,6 +97,8 @@ export default function ActiveWorkoutScreen() {
             target: challengeTarget ? Number(challengeTarget) : 0,
             score: scoreSession(result.summary),
             bestReps: result.summary.reps,
+            totalReps: result.summary.totalReps,
+            durationSeconds: Math.floor(result.summary.durationMs / 1000),
             bestHoldSeconds: result.summary.holdSeconds,
           });
         }
@@ -89,7 +110,7 @@ export default function ActiveWorkoutScreen() {
         router.replace('/(tabs)');
       }
     },
-    [exercise, setFinished, challengeId, slug, saveChallenge],
+    [exercise, setFinished, challengeId, challengeMode, challengeTarget, challenge, slug, saveChallenge],
   );
 
   if (!exercise) {
@@ -104,5 +125,5 @@ export default function ActiveWorkoutScreen() {
     return <ExerciseSetupTip exercise={exercise} onContinue={handleTipContinue} />;
   }
 
-  return <ExerciseTracker exercise={exercise} goal={goal} primaryActionLabel="Stop" primaryActionIcon="stop" onPrimaryAction={onPrimaryAction} />;
+  return <ExerciseTracker exercise={exercise} goal={goal} challenge={challenge} primaryActionLabel="Stop" primaryActionIcon="stop" onPrimaryAction={onPrimaryAction} />;
 }

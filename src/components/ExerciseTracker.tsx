@@ -44,6 +44,7 @@ export type ExerciseTrackerResult = {
 export function ExerciseTracker({
   exercise,
   goal,
+  challenge,
   header,
   primaryActionLabel = 'Stop',
   primaryActionIcon = 'stop',
@@ -53,6 +54,8 @@ export function ExerciseTracker({
   /** Optional rep/hold-time goal — when hit, fires a one-time alert but never
    * stops tracking (the athlete decides when to move on). */
   goal?: ExerciseGoal;
+  /** Daily challenge minimum shown in the live HUD; does not affect counting. */
+  challenge?: { mode: string; minimum: number; minimumLabel: string };
   /** Rendered near the top, e.g. "Step 2 of 5 · Handstand". */
   header?: ReactNode;
   primaryActionLabel?: string;
@@ -80,6 +83,10 @@ export function ExerciseTracker({
     lastRep: null,
     formQuality: 100,
     cleanReps: 0,
+    activeSeverity: null,
+    repMiss: null,
+    inPosition: false,
+    repThresholds: null,
   });
   const [elapsed, setElapsed] = useState(0);
 
@@ -200,6 +207,10 @@ export function ExerciseTracker({
 
       const next = engine.push(frame);
       setLive(next);
+      if (next.repThresholds) {
+        setGaugeDown(Math.min(1, Math.max(0, next.repThresholds.downBelow / 180)));
+        setGaugeUp(Math.min(1, Math.max(0, next.repThresholds.upAbove / 180)));
+      }
 
       // A rep was just completed (guard against attempt resets that drop reps).
       if (next.reps > prevReps.current) {
@@ -244,7 +255,7 @@ export function ExerciseTracker({
     [engine, exercise, goal, repHaptics, hapticCues, repDing, voiceCoach, workoutAlertStyle],
   );
 
-  usePoseSource({ active: !cameraActive && phase !== 'processing', mode: 'mock', onFrame });
+  usePoseSource({ active: !cameraActive && phase !== 'processing', onFrame });
 
   // Full-body gate → 3-2-1 countdown → tracking.
   useEffect(() => {
@@ -297,7 +308,7 @@ export function ExerciseTracker({
     [finishSet],
   );
 
-  const onPrimaryPress = () => {
+  const onPrimaryPress = useCallback(() => {
     if (phase === 'processing') return;
     setPhase('processing');
     if (cameraActive) {
@@ -307,7 +318,12 @@ export function ExerciseTracker({
     } else {
       finishSet(null);
     }
-  };
+  }, [phase, cameraActive, finishSet]);
+
+  useEffect(() => {
+    if (phase !== 'tracking' || !challenge || challenge.mode !== 'max-time') return;
+    if (elapsed >= challenge.minimum * 1000) onPrimaryPress();
+  }, [phase, challenge, elapsed, onPrimaryPress]);
 
   const isHold = exercise.mode === 'hold';
   const metricValue = isHold ? `${live.holdSeconds}s` : String(live.reps);
@@ -319,6 +335,15 @@ export function ExerciseTracker({
   const nextCheckpoint = sortedGoalValues.find((v) => !hitCheckpoints.includes(v));
   const allCheckpointsHit = sortedGoalValues.length > 0 && nextCheckpoint == null;
   const goalProgress = goal ? (nextCheckpoint != null ? Math.min(1, goalCurrent / nextCheckpoint) : 1) : undefined;
+  const challengeCurrent = challenge
+    ? challenge.mode === 'max-time'
+      ? Math.min(challenge.minimum, Math.floor(elapsed / 1000))
+      : isHold
+        ? live.holdSeconds
+        : live.reps
+    : 0;
+  const challengeRemaining = challenge ? Math.max(0, challenge.minimum - challengeCurrent) : 0;
+  const challengeDone = challenge != null && challengeRemaining === 0;
 
   return (
     <View style={styles.root}>
@@ -348,8 +373,8 @@ export function ExerciseTracker({
               height={stage.h}
               mirror={mirrorFrontCamera}
               accentColor={t.accent.color}
-              failColor={live.activeBodyPart ? formQualityColor(live.formQuality) : t.accent.color}
-              highlight={live.activeBodyPart as 'torso' | 'arm' | 'leg' | null}
+               failColor={live.activeSeverity === 'warn' ? formQualityColor(live.formQuality) : t.accent.color}
+               highlight={live.activeSeverity === 'warn' ? live.activeBodyPart as 'torso' | 'arm' | 'leg' | null : null}
               hideLegs={!!exercise.hideLegs}
               sideView={exercise.view === 'side'}
               showBar={!!exercise.showBar}
@@ -361,6 +386,12 @@ export function ExerciseTracker({
       {/* Top status / mode toggle */}
       <View style={styles.topBar} pointerEvents="box-none">
         {header ? <View style={styles.stepHeader}>{header}</View> : null}
+        {tracking && (isHold ? live.holdSeconds === 0 && live.attempts === 0 : live.reps === 0) ? (
+          <View style={[styles.scannerStatus, { borderColor: t.ink.hairline }]}>
+            <View style={[styles.scannerDot, { backgroundColor: t.ink.muted }]} />
+            <Text variant="caption" tone="secondary">Didn&apos;t find anything yet</Text>
+          </View>
+        ) : null}
         <Pressable
           onPress={() => {
             if (cameraActive) setUseDemo(true);
@@ -448,7 +479,7 @@ export function ExerciseTracker({
         <View style={styles.hud} pointerEvents="box-none">
           <View style={styles.timerWrap}>
             <CircularTimer
-              label={formatClock(elapsed)}
+              label={formatClock(isHold ? live.holdSeconds * 1000 : elapsed)}
               sublabel={exercise.name}
               progress={goalProgress}
               ringColor={allCheckpointsHit ? Feedback.good : formQualityColor(live.formQuality)}
@@ -469,6 +500,18 @@ export function ExerciseTracker({
                   {sortedGoalValues
                     .map((v) => `${v}${goal.type === 'hold' ? 's' : ''}${hitCheckpoints.includes(v) ? ' ✓' : ''}`)
                     .join(' · ')}
+                </Text>
+              </View>
+            ) : null}
+            {challenge ? (
+              <View style={[styles.challengePill, { borderColor: challengeDone ? Feedback.good : 'rgba(255,255,255,0.45)' }]}>
+                <Ionicons name={challengeDone ? 'checkmark-circle' : 'trophy-outline'} size={13} color={challengeDone ? Feedback.good : '#FFFFFF'} />
+                <Text variant="caption" style={{ color: '#FFFFFF' }}>
+                  {challengeDone
+                    ? 'Challenge minimum reached'
+                    : challenge.mode === 'max-time'
+                      ? `${formatClock(challengeRemaining * 1000)} left`
+                      : `${challengeRemaining} ${challenge.minimumLabel} to go`}
                 </Text>
               </View>
             ) : null}
@@ -557,6 +600,20 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: Surface.base },
   stage: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: Surface.base },
   topBar: { position: 'absolute', top: 56, left: 0, right: 0, alignItems: 'center', gap: 6 },
+  scannerStatus: {
+    position: 'absolute',
+    top: 0,
+    left: Spacing.lg,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: Radius.pill,
+    borderWidth: 1,
+    backgroundColor: 'rgba(0,0,0,0.52)',
+  },
+  scannerDot: { width: 7, height: 7, borderRadius: 4 },
   stepHeader: { paddingHorizontal: Spacing.lg, marginBottom: 2 },
   chip: {
     flexDirection: 'row',
@@ -588,6 +645,17 @@ const styles = StyleSheet.create({
     // with theme-muted text read fine on a dark app surface but disappeared
     // against a bright/busy live camera background behind it.
     backgroundColor: 'rgba(0,0,0,0.55)',
+  },
+  challengePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: Radius.pill,
+    borderWidth: 1,
+    backgroundColor: 'rgba(0,0,0,0.72)',
   },
   cue: {
     flexDirection: 'row',

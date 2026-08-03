@@ -272,6 +272,7 @@ export function computeRanks(
   const bestMap = new Map<string, { exerciseId: string; exerciseName: string; mode: 'reps' | 'hold'; value: number; score: number | null }>();
   for (const s of sessions) {
     const mode: 'reps' | 'hold' = s.reps > 0 ? 'reps' : 'hold';
+    // Rank strength from one uninterrupted streak, never accumulated volume.
     const value = mode === 'reps' ? s.reps : s.holdSeconds;
     if (value <= 0) continue;
     const cur = bestMap.get(s.exerciseId);

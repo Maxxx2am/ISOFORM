@@ -22,7 +22,9 @@ export type TimelineSample = {
  * reset your set; only genuinely stopping (standing up ≫ 2.5s) closes it.
  */
 const HOLD_BREAK_MS = 600;
-const REP_BREAK_MS = 4000;
+// Kneeling/resting should start a fresh streak promptly, while a single lost
+// pose frame still remains harmless. Totals are accumulated across attempts.
+const REP_BREAK_MS = 1800;
 /** Hold-mode gate debounce: a brief gate failure (arm hiding chest in L-sit,
  * a single-frame tracking glitch during a wall sit) must not immediately
  * close the hold. The gate must stay CLOSED this long before the hold
@@ -594,7 +596,7 @@ export class SessionEngine {
  * on depth + consistency + count. No cue penalty.
  */
 export function scoreSession(s: SessionSummary): number {
-  const didNothing = s.mode === 'hold' ? s.holdSeconds === 0 : s.reps === 0;
+  const didNothing = s.mode === 'hold' ? s.holdSeconds === 0 : s.totalReps === 0;
   if (didNothing) return 0;
   const parts: number[] = [];
   if (s.mode === 'hold') {
@@ -606,7 +608,7 @@ export function scoreSession(s: SessionSummary): number {
     if (s.depthScore != null) parts.push(s.depthScore);
     if (s.consistencyScore != null) parts.push(s.consistencyScore);
     // 12 reps = 100pts. Past 12, logarithmic scaling so 50 reps ≈ 120+.
-    parts.push(Math.round(Math.min(130, 100 + 20 * Math.log2(Math.max(1, s.reps / 12)))));
+    parts.push(Math.round(Math.min(130, 100 + 20 * Math.log2(Math.max(1, s.totalReps / 12)))));
   }
   return parts.length ? Math.max(0, Math.min(100, Math.round(mean(parts)))) : 0;
 }

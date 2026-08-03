@@ -1,5 +1,5 @@
-import { memo, useEffect, useRef, useState } from 'react';
-import { Animated, Easing, StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
+import { memo, useRef, useState } from 'react';
+import { StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
 
 import { alpha, Feedback, Surface } from '@/theme/palette';
 
@@ -37,16 +37,24 @@ export const RepGauge = memo(function RepGauge({
   down,
   up,
   visible,
+  smooth = true,
   style,
 }: {
   marker: number;
   down: number;
   up: number;
   visible: boolean;
+  /** Live tracking benefits from smoothing; replay should show exact frame zones. */
+  smooth?: boolean;
   /** Override the default full-screen (right-edge, vertically centered) placement. */
   style?: StyleProp<ViewStyle>;
 }) {
   const [trackHeight, setTrackHeight] = useState(0);
+  const markerRef = useRef(marker);
+  // Keep the visual marker stable when MediaPipe briefly drops a landmark.
+  // Counting still uses the raw angle; this only removes UI flicker.
+  markerRef.current += (marker - markerRef.current) * 0.35;
+  const displayMarker = smooth ? markerRef.current : marker;
 
   // Don't render the marker capsule until layout gives us the real track
   // height — on the very first frame trackHeight is 0 (was DEFAULT_GAUGE_HEIGHT
@@ -55,17 +63,17 @@ export const RepGauge = memo(function RepGauge({
   // shorter overridden bar). One-frame visual glitch, but noticeable.
   const ready = trackHeight > 0;
 
-  const inZone = marker <= down || marker >= up;
+  const inZone = displayMarker <= down || displayMarker >= up;
 
   // Warp the raw 0-1 angle into the fixed visual bands using THIS exercise's
   // own down/up as the pivots — generic to any exercise, no hardcoded shape.
   let visualMarker: number;
-  if (marker <= down) {
-    visualMarker = down > 0 ? (marker / down) * VISUAL_DOWN : 0;
-  } else if (marker >= up) {
-    visualMarker = up < 1 ? VISUAL_UP + ((marker - up) / (1 - up)) * (1 - VISUAL_UP) : 1;
+  if (displayMarker <= down) {
+    visualMarker = down > 0 ? (displayMarker / down) * VISUAL_DOWN : 0;
+  } else if (displayMarker >= up) {
+    visualMarker = up < 1 ? VISUAL_UP + ((displayMarker - up) / (1 - up)) * (1 - VISUAL_UP) : 1;
   } else {
-    visualMarker = VISUAL_DOWN + ((marker - down) / (up - down)) * (VISUAL_UP - VISUAL_DOWN);
+    visualMarker = VISUAL_DOWN + ((displayMarker - down) / (up - down)) * (VISUAL_UP - VISUAL_DOWN);
   }
   visualMarker = Math.min(1, Math.max(0, visualMarker));
 
@@ -76,24 +84,11 @@ export const RepGauge = memo(function RepGauge({
   const centerPx = ready
     ? Math.min(trackHeight - inset, Math.max(inset, visualMarker * trackHeight))
     : 0;
-  const markerBottomPx = centerPx - half;
-
-  // Animated on the native UI thread (useNativeDriver), not the JS thread —
-  // a brief JS-thread stall (starting text-to-speech is the confirmed case;
-  // see speakCue's own comment) used to show up as the marker instantly
-  // snapping to wherever the next frame said, which read as a glitch/freeze.
-  // Anchored at the track's bottom edge and moved with translateY instead of
-  // the `bottom` layout property specifically because `bottom` can't run on
-  // the native driver — this can.
-  const animatedY = useRef(new Animated.Value(-markerBottomPx)).current;
-  useEffect(() => {
-    Animated.timing(animatedY, {
-      toValue: -markerBottomPx,
-      duration: 90,
-      easing: Easing.out(Easing.quad),
-      useNativeDriver: true,
-    }).start();
-  }, [animatedY, markerBottomPx]);
+  // Anchor at the top of the track, so the native transform uses the same
+  // top-to-bottom coordinate system as the rendered bar. The previous
+  // bottom-anchored transform inverted this distance and could move the live
+  // marker outside the track while the replay happened to look responsive.
+  const markerTopPx = trackHeight - centerPx - half;
 
   if (!visible) return null;
 
@@ -144,19 +139,18 @@ export const RepGauge = memo(function RepGauge({
 
       {/* Live motion marker capsule — hidden until layout measures the track */}
       {ready ? (
-        <Animated.View
+        <View
           style={[
             styles.marker,
             {
-              bottom: 0,
-              transform: [{ translateY: animatedY }],
+              top: markerTopPx,
               borderColor: inZone ? Feedback.good : '#FFFFFF',
               backgroundColor: inZone ? alpha(Feedback.good, 0.25) : alpha('#FFFFFF', 0.15),
             },
           ]}
         >
           <View style={[styles.markerCenterLine, { backgroundColor: inZone ? Feedback.good : '#FFFFFF' }]} />
-        </Animated.View>
+        </View>
       ) : null}
     </View>
   );

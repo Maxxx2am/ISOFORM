@@ -340,7 +340,7 @@ function ChallengeCardCmp({ sessions }: { sessions: SessionRecord[] | null }) {
       ? `${done.score ?? 0} score`
       : challenge.mode === 'hold-target' || challenge.mode === 'max-hold'
         ? `${done.bestHoldSeconds}s`
-        : `${done.bestReps} reps`;
+      : `${done.totalReps ?? done.bestReps} reps`;
     return (
       <View
         style={[styles.card, { backgroundColor: t.surface.raised, borderColor: Feedback.good }]}

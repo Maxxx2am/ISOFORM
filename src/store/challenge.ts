@@ -10,6 +10,10 @@ export interface ChallengeResult {
   score: number | null;
   /** Best single-set metric achieved that day. */
   bestReps: number;
+  /** Total reps completed during a timed challenge window. */
+  totalReps?: number;
+  /** Elapsed challenge window in seconds. */
+  durationSeconds?: number;
   bestHoldSeconds: number;
 }
 

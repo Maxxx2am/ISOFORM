@@ -613,6 +613,7 @@ function VideoReplay({
                 down={(repThresholds?.downBelow ?? gauge.downBelow) / 180}
                 up={(repThresholds?.upAbove ?? gauge.upAbove) / 180}
                 visible
+                smooth={false}
                 style={styles.replayGaugeInner}
               />
             )}
@@ -751,7 +752,7 @@ function Report({
   const t = useTheme();
 
   // Nothing was tracked — don't invent a score. Explain why instead.
-  const nothingTracked = summary.mode === 'hold' ? summary.holdSeconds === 0 : summary.reps === 0;
+  const nothingTracked = summary.mode === 'hold' ? summary.holdSeconds === 0 : summary.totalReps === 0;
   if (nothingTracked) {
     return (
       <View style={{ gap: Spacing.md, marginTop: Spacing.lg }}>
@@ -770,9 +771,9 @@ function Report({
   }
 
   const overall = scoreOverride ?? scoreSession(summary);
-  const headline = summary.mode === 'hold' ? `${summary.holdSeconds}s` : `${summary.reps}`;
+  const headline = summary.mode === 'hold' ? `${summary.holdSeconds}s` : `${summary.totalReps}`;
   const headlineLabel =
-    summary.mode === 'hold' ? 'Best hold' : summary.attempts > 1 ? 'Best streak' : 'Reps';
+    summary.mode === 'hold' ? 'Best hold' : 'Total reps';
 
   // Compute an overall form quality from available sub-scores.
   let formQuality: number | null = summary.formQuality;
@@ -787,11 +788,8 @@ function Report({
     { label: 'Duration', value: formatClock(summary.durationMs) },
   ];
   if (summary.attempts > 1) stats.push({ label: 'Attempts', value: String(summary.attempts) });
-  // Only shown when it's a genuinely different number from the headline
-  // "best" — one clean unbroken set already reads as "you did X" from the
-  // headline alone, so a second identical stat would just be noise.
   if (summary.mode === 'reps' && summary.totalReps > summary.reps)
-    stats.push({ label: 'Total reps', value: String(summary.totalReps) });
+    stats.push({ label: 'Best streak', value: String(summary.reps) });
   if (summary.mode === 'hold' && summary.totalHoldSeconds > summary.holdSeconds)
     stats.push({ label: 'Total time', value: `${summary.totalHoldSeconds}s` });
   if (summary.mode === 'reps' && summary.avgRepSeconds != null)
