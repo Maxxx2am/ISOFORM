@@ -1,11 +1,11 @@
 {
-  "version": 5,
+  "version": 6,
   "changelog": [
     {
-      "version": 5,
+      "version": 6,
       "date": "2026-08-03",
-      "title": "Tracking accuracy improvements",
-      "body": "- Rep thresholds no longer get poisoned by a glitchy first attempt\n- Handstand holds stop immediately when your feet touch the floor\n- Wall sit pauses when the squat position is lost\n- Squats require a meaningful parallel-depth bend\n- Jump squat and HSPU lockout zones are easier to reach\n- Pistol squat now uses a front view to track both legs\n- Superman hold requires a real limb lift\n- Mountain climbers accept a natural plank return"
+      "title": "Challenge and tracking improvements",
+      "body": "- Daily challenges stop when the target is reached\n- Timed challenges stop at the time limit\n- Pauses keep total reps while restarting the uninterrupted streak\n- Rank progress uses one uninterrupted streak\n- Replay gauges now match the live green zones\n- Rep thresholds no longer get poisoned by a glitchy first attempt\n- Handstand holds stop immediately when your feet touch the floor"
     },
     {
       "version": 1,
