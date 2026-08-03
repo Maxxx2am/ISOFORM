@@ -174,19 +174,6 @@ export default function SettingsScreen() {
         <SectionLabel>Workout</SectionLabel>
         <ListGroup>
           <ListRow
-            title="iCloud backup"
-            subtitle={
-              !s.iCloudSyncEnabled
-                ? 'Back up settings and recent workout history, not videos'
-                : syncStatus.syncing
-                  ? 'Syncing…'
-                  : syncStatus.lastSyncedAt
-                    ? `Synced ${formatRelativeDay(syncStatus.lastSyncedAt)}`
-                    : 'On — waiting for first sync'
-            }
-            right={<Switch value={s.iCloudSyncEnabled} onValueChange={onToggleICloud} trackColor={{ true: Feedback.good, false: t.surface.pressed }} thumbColor="#FFFFFF" />}
-          />
-          <ListRow
             title="Countdown"
             subtitle="Delay before tracking starts"
             right={
@@ -302,6 +289,19 @@ export default function SettingsScreen() {
       <View style={{ marginTop: Spacing.lg }}>
         <SectionLabel>Backup & data</SectionLabel>
         <ListGroup>
+          <ListRow
+            title="iCloud backup"
+            subtitle={
+              !s.iCloudSyncEnabled
+                ? 'Back up settings and recent workout history, not videos'
+                : syncStatus.syncing
+                  ? 'Syncing…'
+                  : syncStatus.lastSyncedAt
+                    ? `Synced ${formatRelativeDay(syncStatus.lastSyncedAt)}`
+                    : 'On — waiting for first sync'
+            }
+            right={<Switch value={s.iCloudSyncEnabled} onValueChange={onToggleICloud} trackColor={{ true: Feedback.good, false: t.surface.pressed }} thumbColor="#FFFFFF" />}
+          />
           <ListRow
             title="Export my data"
             subtitle="Share your full workout history as a JSON file"
