@@ -114,25 +114,6 @@ export default function TrainScreen() {
       <ChallengeCardCmp sessions={sessions} />
       <ProgramBannerCmp />
 
-      {!hasAllAccess ? (
-        <View style={{ marginTop: Spacing.lg }}>
-          <Text variant="label" tone="muted">Available now</Text>
-          <View style={{ marginTop: Spacing.sm }}>
-            <ListGroup>
-              {exercises.filter((exercise) => isExerciseUnlocked(exercise.slug)).map((exercise) => (
-                <ListRow
-                  key={exercise.slug}
-                  title={exercise.name}
-                  subtitle={exercise.mode === 'hold' ? 'Timed hold' : 'Rep tracking'}
-                  icon={<Ionicons name="checkmark-circle" size={20} color={Feedback.good} />}
-                  onPress={() => open(exercise.slug)}
-                />
-              ))}
-            </ListGroup>
-          </View>
-        </View>
-      ) : null}
-
       {/* Only ever the exercise closest to leveling up — no "you haven't
           trained X in a while" nudge. That kind of suggestion reads as
           judgmental to some people, and "closest to the next tier" is

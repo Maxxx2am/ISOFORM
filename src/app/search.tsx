@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import { useEffect, useMemo, useState } from 'react';
+import { useDeferredValue, useEffect, useMemo, useState } from 'react';
 import { Modal, Pressable, StyleSheet, TextInput, View } from 'react-native';
 
 import { Atmosphere } from '@/components/Atmosphere';
@@ -49,32 +49,38 @@ export default function SearchScreen() {
   const exercises = useActiveExercises();
   const favorites = useFavorites();
   const [query, setQuery] = useState('');
+  const deferredQuery = useDeferredValue(query);
   const searching = query.trim().length > 0;
+  const favoriteSlugs = useMemo(() => new Set(favorites.favorites), [favorites.favorites]);
 
   const favoritedExercises = useMemo(
-    () => exercises.filter((e) => favorites.isFavorite(e.slug)),
-    [exercises, favorites],
+    () => exercises.filter((e) => favoriteSlugs.has(e.slug)),
+    [exercises, favoriteSlugs],
   );
 
   const results = useMemo(() => {
-    const hits = searchExercises(query, exercises);
-    const favs = hits.filter((e) => favorites.isFavorite(e.slug));
-    const rest = hits.filter((e) => !favorites.isFavorite(e.slug));
+    const hits = searchExercises(deferredQuery, exercises);
+    const favs = hits.filter((e) => favoriteSlugs.has(e.slug));
+    const rest = hits.filter((e) => !favoriteSlugs.has(e.slug));
     return [...favs, ...rest];
-  }, [query, exercises, favorites]);
+  }, [deferredQuery, exercises, favoriteSlugs]);
 
   const sections = useMemo(
     () =>
       SECTIONS.map((section) => ({
         ...section,
         items: exercises
-          .filter((e) => e.category === section.key && !favorites.isFavorite(e.slug))
+          .filter((e) => e.category === section.key && !favoriteSlugs.has(e.slug))
           .sort((a, b) => a.level - b.level),
       })).filter((s) => s.items.length > 0),
-    [exercises, favorites],
+    [exercises, favoriteSlugs],
   );
   const hasAllAccess = useSubscription((s) => s.hasAllAccess);
   const isExerciseUnlocked = (slug: string) => hasAllAccess || FREE_EXERCISES.includes(slug);
+  const availableExercises = useMemo(
+    () => !hasAllAccess ? exercises.filter((e) => FREE_EXERCISES.includes(e.slug) && !favoriteSlugs.has(e.slug)) : [],
+    [exercises, favoriteSlugs, hasAllAccess],
+  );
   const [buyTarget, setBuyTarget] = useState<Exercise | null>(null);
   const setOverlayOpen = useUiStore((s) => s.setOverlayOpen);
   useEffect(() => {
@@ -149,6 +155,12 @@ export default function SearchScreen() {
         )
       ) : (
         <>
+          {availableExercises.length > 0 ? (
+            <View style={{ marginTop: Spacing.lg }}>
+              <SectionLabel>Available</SectionLabel>
+              <ListGroup>{availableExercises.map(row)}</ListGroup>
+            </View>
+          ) : null}
           {favoritedExercises.length > 0 ? (
             <View style={{ marginTop: Spacing.lg }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: Spacing.sm, marginLeft: 4 }}>
