@@ -14,8 +14,7 @@ import { StreakFlame } from '@/components/StreakFlame';
 import { Text } from '@/components/Text';
 import { useActiveExercises } from '@/exercises/registry';
 import { getExercise } from '@/exercises/data';
-import { getDailyChallenge, getMotivation } from '@/exercises/challenges';
-import { PROGRAMS } from '@/exercises/programs';
+import { getDailyChallenge, isChallengeComplete } from '@/exercises/challenges';
 import type { Exercise } from '@/exercises/types';
 import { formatClock, formatRelativeDay } from '@/lib/format';
 import { computeStreakDays } from '@/lib/insights';
@@ -112,21 +111,27 @@ export default function TrainScreen() {
         ) : null}
       </View>
 
-      <ChallengeCardCmp />
+      <ChallengeCardCmp sessions={sessions} />
       <ProgramBannerCmp />
 
-      <Pressable
-        onPress={() => setAddOpen(true)}
-        style={({ pressed }) => [
-          styles.quickStart,
-          { backgroundColor: t.surface.raised, borderColor: t.ink.hairline },
-          pressed && { opacity: 0.7 },
-        ]}
-      >
-        <Ionicons name="camera-outline" size={18} color={t.ink.secondary} />
-        <Text variant="body" tone="secondary">Quick workout</Text>
-        <Ionicons name="chevron-forward" size={14} color={t.ink.muted} />
-      </Pressable>
+      {!hasAllAccess ? (
+        <View style={{ marginTop: Spacing.lg }}>
+          <Text variant="label" tone="muted">Available now</Text>
+          <View style={{ marginTop: Spacing.sm }}>
+            <ListGroup>
+              {exercises.filter((exercise) => isExerciseUnlocked(exercise.slug)).map((exercise) => (
+                <ListRow
+                  key={exercise.slug}
+                  title={exercise.name}
+                  subtitle={exercise.mode === 'hold' ? 'Timed hold' : 'Rep tracking'}
+                  icon={<Ionicons name="checkmark-circle" size={20} color={Feedback.good} />}
+                  onPress={() => open(exercise.slug)}
+                />
+              ))}
+            </ListGroup>
+          </View>
+        </View>
+      ) : null}
 
       {/* Only ever the exercise closest to leveling up — no "you haven't
           trained X in a while" nudge. That kind of suggestion reads as
@@ -219,7 +224,6 @@ export default function TrainScreen() {
 
 function StartWorkoutSheet({ visible, onClose }: { visible: boolean; onClose: () => void }) {
   const t = useTheme();
-  const exercises = useActiveExercises();
   const [view, setView] = useState<'main' | 'startChoice'>('main');
 
   const close = () => {
@@ -308,17 +312,11 @@ function StartWorkoutSheet({ visible, onClose }: { visible: boolean; onClose: ()
   );
 }
 
-function ChallengeCardCmp() {
+function ChallengeCardCmp({ sessions }: { sessions: SessionRecord[] | null }) {
   const t = useTheme();
   const hasAllAccess = useSubscription((s) => s.hasAllAccess);
   const history = useChallengeStore((s) => s.history);
-  const [sessions, setSessions] = useState<SessionRecord[] | null>(null);
-
-  useEffect(() => {
-    getSessions()
-      .then((rows) => setSessions(rows))
-      .catch(() => setSessions([]));
-  }, []);
+  const [challengeOpen, setChallengeOpen] = useState(false);
 
   const challenge = useMemo(
     () => {
@@ -334,12 +332,19 @@ function ChallengeCardCmp() {
   if (!challenge) return null;
 
   const today = new Date().toISOString().slice(0, 10);
-  const done = history[today];
+  const saved = history[today];
+  const done = saved && isChallengeComplete(challenge, saved) ? saved : null;
 
   if (done) {
-    const motivation = getMotivation(Date.now());
+    const completedValue = challenge.mode === 'best-form'
+      ? `${done.score ?? 0} score`
+      : challenge.mode === 'hold-target' || challenge.mode === 'max-hold'
+        ? `${done.bestHoldSeconds}s`
+        : `${done.bestReps} reps`;
     return (
-      <View style={[styles.card, { backgroundColor: t.surface.raised, borderColor: Feedback.good }]}>
+      <View
+        style={[styles.card, { backgroundColor: t.surface.raised, borderColor: Feedback.good }]}
+      >
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm }}>
           <Ionicons name="checkmark-circle" size={22} color={Feedback.good} />
           <Text variant="heading" style={{ color: Feedback.good }}>Challenge complete</Text>
@@ -347,45 +352,95 @@ function ChallengeCardCmp() {
         <Text tone="secondary" style={{ marginTop: Spacing.xs }}>
           {challenge.title} · {getExercise(challenge.exerciseSlug)?.name ?? challenge.exerciseName}
         </Text>
-        {done.score != null ? (
-          <Text variant="display" style={{ marginTop: Spacing.sm, color: Feedback.good }}>{done.score}</Text>
-        ) : null}
-        <Text tone="secondary" variant="body" style={{ marginTop: Spacing.sm }}>{motivation}</Text>
+        <Text variant="display" style={{ marginTop: Spacing.sm, color: Feedback.good }}>{completedValue}</Text>
+        <Text variant="caption" tone="secondary" style={{ marginTop: Spacing.xs }}>
+          Minimum: {challenge.minimum} {challenge.minimumLabel}
+        </Text>
       </View>
     );
   }
 
+  const exercise = getExercise(challenge.exerciseSlug);
+  const startChallenge = () => {
+    setChallengeOpen(false);
+    router.push({
+      pathname: '/workout/active',
+        params: {
+          slug: challenge.exerciseSlug,
+          challengeId: challenge.id,
+          challengeTarget: challenge.target != null ? String(challenge.target) : '0',
+          challengeMode: challenge.mode,
+          challengeMinimum: String(challenge.minimum),
+          challengeMinimumLabel: challenge.minimumLabel,
+        },
+    });
+  };
+
   return (
-    <Pressable
-      onPress={() => {
-        router.push({
-          pathname: '/workout/active',
-          params: {
-            slug: challenge.exerciseSlug,
-            challengeId: challenge.id,
-            challengeTarget: challenge.target != null ? String(challenge.target) : '0',
-          },
-        });
-      }}
-      style={({ pressed }) => [
-        styles.card,
-        { backgroundColor: t.surface.raised, borderColor: t.ink.hairline },
-        pressed && { opacity: 0.7 },
-      ]}
-    >
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm }}>
-        <Ionicons name="play-circle" size={22} color={t.accent.color} />
-        <Text variant="heading" style={{ color: t.accent.color }}>Today&apos;s challenge</Text>
-      </View>
-      <Text tone="secondary" style={{ marginTop: Spacing.xs }}>
-        {challenge.title} · {getExercise(challenge.exerciseSlug)?.name ?? challenge.exerciseName}
-      </Text>
-      {challenge.target != null ? (
-        <Text variant="body" style={{ marginTop: Spacing.sm }}>
-          Target: {challenge.target} {challenge.targetLabel}
+    <>
+      <Pressable
+        onPress={() => setChallengeOpen(true)}
+        style={({ pressed }) => [
+          styles.card,
+          { backgroundColor: t.surface.raised, borderColor: t.ink.hairline },
+          pressed && { opacity: 0.7 },
+        ]}
+      >
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm }}>
+          <Ionicons name="play-circle" size={22} color={t.accent.color} />
+          <Text variant="heading" style={{ color: t.accent.color }}>Today&apos;s challenge</Text>
+        </View>
+        <Text tone="secondary" style={{ marginTop: Spacing.xs }}>
+          {challenge.title} · {exercise?.name ?? challenge.exerciseName}
         </Text>
-      ) : null}
-    </Pressable>
+        {challenge.target != null ? (
+          <Text variant="body" style={{ marginTop: Spacing.sm }}>
+            Target: {challenge.target} {challenge.targetLabel}
+          </Text>
+        ) : null}
+      </Pressable>
+
+      <Modal visible={challengeOpen} transparent animationType="fade" onRequestClose={() => setChallengeOpen(false)}>
+        <Pressable style={styles.overlay} onPress={() => setChallengeOpen(false)}>
+          <Pressable style={[styles.sheet, { backgroundColor: t.surface.base, borderColor: t.ink.hairline }]}>
+            <Ionicons name="trophy-outline" size={28} color={t.accent.color} />
+            <Text variant="label" tone="muted">TODAY&apos;S CHALLENGE</Text>
+            <View
+              style={[styles.challengeSummary, { backgroundColor: t.surface.raised, borderColor: t.ink.hairline }]}
+            >
+              <Text variant="heading">{exercise?.name ?? challenge.exerciseName}</Text>
+              <View style={styles.challengeDetailRow}>
+                <Text variant="caption" tone="muted">CHALLENGE</Text>
+                <Text variant="body" style={{ fontWeight: '700', color: t.accent.color }}>{challenge.title}</Text>
+              </View>
+              <View style={styles.challengeDetailRow}>
+                <Text variant="caption" tone="muted">MINIMUM</Text>
+                <Text variant="body" style={{ fontWeight: '700' }}>{challenge.minimum} {challenge.minimumLabel}</Text>
+              </View>
+            </View>
+            <Text tone="secondary" style={{ textAlign: 'center' }}>
+              {challenge.target != null
+                ? `Complete ${challenge.target} ${challenge.targetLabel} to hit today's target.`
+                : challenge.mode === 'max-time'
+                  ? 'Do as many clean reps as possible in 1 minute.'
+                  : challenge.mode === 'max-hold'
+                    ? 'Hold the position for as long as you can with good form.'
+                    : 'Aim for your best form score on one clean set.'}
+            </Text>
+            <PrimaryButton
+              label="Start challenge"
+              variant="hero"
+              icon={<Ionicons name="arrow-forward" size={22} color={t.accent.onColor} />}
+              onPress={startChallenge}
+              style={{ alignSelf: 'stretch' }}
+            />
+            <Pressable onPress={() => setChallengeOpen(false)} hitSlop={8}>
+              <Text tone="muted">Not now</Text>
+            </Pressable>
+          </Pressable>
+        </Pressable>
+      </Modal>
+    </>
   );
 }
 
@@ -475,10 +530,18 @@ const styles = StyleSheet.create({
     borderRadius: Radius.md,
     borderWidth: 1,
   },
-  quickStart: {
-    flexDirection: 'row', alignItems: 'center', gap: Spacing.sm,
-    marginTop: Spacing.sm, paddingVertical: Spacing.sm, paddingHorizontal: Spacing.md,
-    borderRadius: Radius.pill, borderWidth: 1,
+  challengeSummary: {
+    alignSelf: 'stretch',
+    padding: Spacing.md,
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    gap: Spacing.sm,
+  },
+  challengeDetailRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: Spacing.md,
   },
   empty: {
     marginTop: Spacing.lg,

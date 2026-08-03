@@ -14,6 +14,7 @@
  */
 
 import type { SessionRecord } from '@/storage/db';
+import { getExercise } from '@/exercises/data';
 
 export type ChallengeMode =
   | 'max-time'   // Most reps in 1 minute
@@ -32,6 +33,8 @@ export interface DailyChallenge {
   subtitle: string;
   target: number | null; // null = no specific target (time/endurance based)
   targetLabel: string;
+  minimum: number;
+  minimumLabel: string;
 }
 
 /** Exercises that rotate for paid users (simple, accessible moves). */
@@ -112,8 +115,17 @@ export function getDailyChallenge(
   }
 
   const best = bestFor(exerciseSlug, sessions);
+  const exerciseMode = getExercise(exerciseSlug)?.mode;
   const modeIdx = idx % MODES.length;
   let mode = MODES[modeIdx];
+
+  // Never pair a hold challenge with a rep exercise (or vice versa). The old
+  // rotation produced nonsense such as "Hold the target · Push-Up".
+  if (exerciseMode === 'hold' && mode.mode !== 'max-hold' && mode.mode !== 'hold-target' && mode.mode !== 'best-form') {
+    mode = MODES[1];
+  } else if (exerciseMode === 'reps' && (mode.mode === 'max-hold' || mode.mode === 'hold-target')) {
+    mode = MODES[0];
+  }
 
   // Override: new users or no data → time/endurance modes only
   if (isNew && (mode.mode === 'rep-target' || mode.mode === 'hold-target')) {
@@ -138,6 +150,18 @@ export function getDailyChallenge(
       break;
   }
 
+  const minimum = target ?? (
+    mode.mode === 'max-time' ? 60
+    : mode.mode === 'best-form' ? (exerciseMode === 'hold' ? 10 : 5)
+    : mode.mode === 'max-hold' ? 10
+    : 0
+  );
+  const minimumLabel = target != null
+    ? mode.label
+    : mode.mode === 'max-time' || mode.mode === 'max-hold' || exerciseMode === 'hold'
+      ? 'seconds'
+      : 'reps';
+
   return {
     id: `challenge-${idx}`,
     date: date.toISOString().slice(0, 10),
@@ -148,6 +172,8 @@ export function getDailyChallenge(
     subtitle: target != null ? `Target: ${target}${mode.label}` : 'Do your best',
     target,
     targetLabel: mode.label,
+    minimum,
+    minimumLabel,
   };
 }
 
@@ -188,6 +214,17 @@ export function scoreChallenge(
       return Math.round(onTarget ? 100 : challenge.target ? (total / challenge.target) * 100 : bestHold);
     }
   }
+}
+
+/** A saved result is only complete when it belongs to today's challenge and
+ * actually satisfies that challenge's minimum. Older builds could persist a
+ * zero-value result, so the home card must not trust history blindly. */
+export function isChallengeComplete(challenge: DailyChallenge, result: { challengeId: string; bestReps: number; bestHoldSeconds: number }): boolean {
+  if (result.challengeId !== challenge.id) return false;
+  const value = challenge.mode === 'max-hold' || challenge.mode === 'hold-target'
+    ? result.bestHoldSeconds
+    : result.bestReps;
+  return value >= challenge.minimum;
 }
 
 const MOTIVATION = [

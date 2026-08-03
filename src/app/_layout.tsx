@@ -1,6 +1,7 @@
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
+import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { useEffect, useState } from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -12,8 +13,10 @@ import { startAutoRefresh } from '@/exercises/registry';
 import { installGlobalErrorHandler, onFatalError } from '@/lib/globalErrorHandler';
 import { preloadAppImages } from '@/lib/preloadAssets';
 import { getSessions } from '@/lib/sessionCache';
+import '@/lib/icloudSync';
 import { useOnboarding } from '@/store/onboarding';
 import { useTheme } from '@/theme/useTheme';
+import { Text } from '@/components/Text';
 
 installGlobalErrorHandler();
 
@@ -79,7 +82,7 @@ function ThemedRoot() {
         {/* !hasHydrated renders nothing — solid black same as the splash,
             since the persisted onboarding flag hasn't loaded yet and showing
             either screen here could be wrong for a beat. */}
-        {!hasHydrated ? null : !hasOnboarded ? (
+        {!hasHydrated ? <StartupScreen /> : !hasOnboarded ? (
           <OnboardingFlow onDone={() => setHasOnboarded(true)} />
         ) : (
           <Stack
@@ -108,8 +111,8 @@ function ThemedRoot() {
             />
             <Stack.Screen name="workout/review/[id]" options={{ gestureEnabled: false }} />
             <Stack.Screen name="workout/summary" options={{ gestureEnabled: false }} />
-            <Stack.Screen name="exercise/[slug]" options={{ presentation: 'card' }} />
-            <Stack.Screen name="settings" options={{ presentation: 'card' }} />
+            <Stack.Screen name="exercise/[slug]" options={{ presentation: 'card', animation: 'slide_from_right', gestureEnabled: true }} />
+            <Stack.Screen name="settings" options={{ presentation: 'card', animation: 'slide_from_right', gestureEnabled: true }} />
             {/* Was presentation:'modal' — pushing a 'card' screen (exercise
                 detail) from inside a modal-presented screen is a known
                 react-native-screens layering bug: the pushed screen renders
@@ -118,10 +121,38 @@ function ThemedRoot() {
                 to-dismiss), so there's no visual reason for it to be a modal
                 in the first place — plain 'card' matches every other screen
                 it navigates to/from. */}
-            <Stack.Screen name="search" options={{ presentation: 'card' }} />
+            <Stack.Screen name="search" options={{ presentation: 'card', animation: 'slide_from_right', gestureEnabled: true }} />
           </Stack>
         )}
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );
 }
+
+function StartupScreen() {
+  const t = useTheme();
+  return (
+    <View style={[styles.startup, { backgroundColor: t.surface.base }]}>
+      <View style={[styles.startupMark, { backgroundColor: t.accent.color }]}>
+        <Text style={{ color: t.accent.onColor, fontSize: 24, fontWeight: '800' }}>I</Text>
+      </View>
+      <Text variant="title" style={styles.startupTitle}>ISOFORM</Text>
+      <Text tone="secondary" style={styles.startupSubtitle}>Preparing your training space</Text>
+      <View style={styles.startupSkeleton}>
+        <View style={[styles.startupLine, { backgroundColor: t.surface.raised }]} />
+        <View style={[styles.startupLine, styles.startupShort, { backgroundColor: t.surface.raised }]} />
+      </View>
+      <ActivityIndicator color={t.accent.color} style={{ marginTop: 24 }} />
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  startup: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32 },
+  startupMark: { width: 52, height: 52, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
+  startupTitle: { marginTop: 16, letterSpacing: 2 },
+  startupSubtitle: { marginTop: 6 },
+  startupSkeleton: { width: '72%', marginTop: 40, gap: 10 },
+  startupLine: { height: 12, borderRadius: 6 },
+  startupShort: { width: '62%' },
+});

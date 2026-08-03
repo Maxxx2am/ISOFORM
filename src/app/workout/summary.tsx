@@ -13,6 +13,7 @@ import { makeId } from '@/lib/format';
 import { useWorkoutRunStore } from '@/store/workoutRun';
 import { useWorkouts } from '@/store/workouts';
 import { saveSession } from '@/storage/db';
+import { schedulePushToCloud } from '@/lib/icloudSync';
 import { Feedback, Radius, Spacing } from '@/theme/palette';
 import { useTheme } from '@/theme/useTheme';
 
@@ -65,6 +66,7 @@ export default function WorkoutSummaryScreen() {
       for (const step of finished.steps) {
         if (savedStepIdsRef.current.has(step.id)) continue;
         await saveSession(step.id, step.exerciseName, step.createdAt, step.summary, step.videoUri, step.timeline, step.videoAspect);
+        schedulePushToCloud();
         savedStepIdsRef.current.add(step.id);
       }
       setSaved(true);

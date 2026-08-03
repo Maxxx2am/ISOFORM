@@ -18,6 +18,7 @@ import { Text } from '@/components/Text';
 import { useExerciseRegistry } from '@/exercises/registry';
 import { buildDebugInfo, deleteAllData, exportDataAsJson, importDataFromJson, resetSettingsAndProfile, seedDemoSessions, triggerTestCrash } from '@/lib/devTools';
 import { formatRelativeDay } from '@/lib/format';
+import { isICloudAvailable, pullFromCloud, pushToCloud, useSyncStatus } from '@/lib/icloudSync';
 
 import { useOnboarding } from '@/store/onboarding';
 import { useProfile } from '@/store/profile';
@@ -32,6 +33,19 @@ export default function SettingsScreen() {
   const sub = useSubscription();
   const profile = useProfile();
   const [busy, setBusy] = useState<string | null>(null);
+  const syncStatus = useSyncStatus();
+
+  const onToggleICloud = async (enabled: boolean) => {
+    if (enabled && !isICloudAvailable()) {
+      Alert.alert('iCloud unavailable', 'Sign into iCloud on this device and use a development or App Store build. iCloud does not work in Expo Go.');
+      return;
+    }
+    s.setICloudSyncEnabled(enabled);
+    if (enabled) {
+      await pullFromCloud();
+      await pushToCloud();
+    }
+  };
 
   // Deep link from the "complete your profile" nudge on the Profile tab
   // (and from onboarding's skip path) — /settings?section=bodyStats lands
@@ -159,6 +173,19 @@ export default function SettingsScreen() {
       <View style={{ marginTop: Spacing.lg }}>
         <SectionLabel>Workout</SectionLabel>
         <ListGroup>
+          <ListRow
+            title="iCloud backup"
+            subtitle={
+              !s.iCloudSyncEnabled
+                ? 'Back up settings and recent workout history, not videos'
+                : syncStatus.syncing
+                  ? 'Syncing…'
+                  : syncStatus.lastSyncedAt
+                    ? `Synced ${formatRelativeDay(syncStatus.lastSyncedAt)}`
+                    : 'On — waiting for first sync'
+            }
+            right={<Switch value={s.iCloudSyncEnabled} onValueChange={onToggleICloud} trackColor={{ true: Feedback.good, false: t.surface.pressed }} thumbColor="#FFFFFF" />}
+          />
           <ListRow
             title="Countdown"
             subtitle="Delay before tracking starts"

@@ -17,13 +17,14 @@ import type { CueTally } from '@/engine/formAnalyzer';
 import { scoreSession, type SessionSummary, type TimelineSample } from '@/engine/sessionEngine';
 import { getExercise, getNextProgression, getPrevProgression } from '@/exercises/data';
 import { coachNotes } from '@/lib/coach';
+import { schedulePushToCloud } from '@/lib/icloudSync';
 import { formatClock } from '@/lib/format';
 
 import { SkeletonOverlay } from '@/pose/SkeletonOverlay';
 import { useSessionStore } from '@/store/session';
 import { useSettings } from '@/store/settings';
 import { deleteSession, getSession, listSessionsForExercise, saveSession } from '@/storage/db';
-import { Feedback, formQualityColor, Radius, Spacing } from '@/theme/palette';
+import { alpha, Feedback, formQualityColor, Radius, Spacing } from '@/theme/palette';
 import { useTheme } from '@/theme/useTheme';
 
 const PAD_MS = 3000;
@@ -145,6 +146,7 @@ export default function ReviewScreen() {
     setSaving(true);
     try {
       await saveSession(fromStore.id, fromStore.exerciseName, fromStore.createdAt, summary, videoUri, timeline ?? [], videoAspect);
+      schedulePushToCloud();
       setPersisted(true);
       leave();
     } catch {
@@ -242,25 +244,16 @@ export default function ReviewScreen() {
       ) : null}
 
       {summary ? (
-        <Report summary={summary} scoreOverride={historyScore} isNewRecord={isNewRecord} previousBest={previousBest} />
+        <Report summary={summary} scoreOverride={historyScore} isNewRecord={isNewRecord} previousBest={previousBest} formTrend={formTrend} />
       ) : (
         <Text tone="muted">Loading…</Text>
       )}
-      {formTrend ? (
-        <View style={[styles.trendCard, { backgroundColor: t.surface.raised, borderColor: t.ink.hairline }]}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm }}>
-            <Ionicons
-              name={formTrend.dir === 'up' ? 'trending-up' : formTrend.dir === 'down' ? 'trending-down' : 'remove-outline'}
-              size={20}
-              color={formTrend.dir === 'up' ? Feedback.good : formTrend.dir === 'down' ? Feedback.warn : t.ink.secondary}
-            />
-            <Text variant="body" tone="secondary" style={{ flex: 1 }}>{formTrend.msg}</Text>
-          </View>
-        </View>
-      ) : null}
       {summary ? <ProgressionAdvice summary={summary} /> : null}
 
-      <View style={{ height: unsaved ? 260 : 88 }} />
+      {/* Screen already contributes 48pt of scroll padding. Add only the
+          remaining height needed to clear the fixed save bar, including the
+          device's bottom safe area. */}
+      <View style={{ height: Spacing.xl + Spacing.sm + insets.bottom }} />
     </Screen>
     <View style={[styles.saveBar, { paddingBottom: insets.bottom + Spacing.md }]} pointerEvents="box-none">
       <View style={[styles.savePill, { backgroundColor: t.surface.raised, borderColor: t.ink.hairline }]}>
@@ -480,7 +473,7 @@ function VideoReplay({
   // and the true-space landmarks get mirrored in frame space (inside the
   // cover transform below) to land back on the recorded pixels. Back-camera
   // files are true-space, so nothing flips anywhere.
-  const mirrorLandmarks = cameraFacing === 'front';
+  const mirrorLandmarks = false;
   const [size, setSize] = useState({ w: 0, h: 0 });
   const [tMs, setTMs] = useState(0);
   const [segIdx, setSegIdx] = useState(0);
@@ -747,11 +740,13 @@ function Report({
   scoreOverride,
   isNewRecord,
   previousBest,
+  formTrend,
 }: {
   summary: SessionSummary;
   scoreOverride?: number | null;
   isNewRecord?: boolean;
   previousBest?: number | null;
+  formTrend?: { dir: 'up' | 'down' | 'flat'; msg: string } | null;
 }) {
   const t = useTheme();
 
@@ -868,7 +863,7 @@ function Report({
       </View>
 
       {/* Coach */}
-      <CoachCard summary={summary} previousBest={previousBest ?? null} />
+      <CoachCard summary={summary} previousBest={previousBest ?? null} formTrend={formTrend} />
 
       {/* Form breakdown */}
       {summary.cues.length > 0 ? (
@@ -885,7 +880,7 @@ function Report({
   );
 }
 
-function CoachCard({ summary, previousBest }: { summary: SessionSummary; previousBest: number | null }) {
+function CoachCard({ summary, previousBest, formTrend }: { summary: SessionSummary; previousBest: number | null; formTrend?: { dir: 'up' | 'down' | 'flat'; msg: string } | null }) {
   const t = useTheme();
   const { verdict, advice } = coachNotes(summary, { previousBest });
   return (
@@ -911,6 +906,16 @@ function CoachCard({ summary, previousBest }: { summary: SessionSummary; previou
           </View>
         ))}
       </View>
+      {formTrend ? (
+        <View style={[styles.coachTrend, { borderColor: t.ink.hairline }]}>
+          <Ionicons
+            name={formTrend.dir === 'up' ? 'trending-up' : formTrend.dir === 'down' ? 'trending-down' : 'remove-outline'}
+            size={18}
+            color={formTrend.dir === 'up' ? Feedback.good : formTrend.dir === 'down' ? Feedback.warn : t.ink.secondary}
+          />
+          <Text variant="caption" tone="secondary" style={{ flex: 1 }}>{formTrend.msg}</Text>
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -1170,6 +1175,7 @@ const styles = StyleSheet.create({
   coachHead: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
   coachBadge: { width: 28, height: 28, borderRadius: Radius.pill, alignItems: 'center', justifyContent: 'center' },
   adviceRow: { flexDirection: 'row', alignItems: 'flex-start', gap: Spacing.sm },
+  coachTrend: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, marginTop: Spacing.sm, paddingTop: Spacing.sm, borderTopWidth: 1 },
   cueRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1190,7 +1196,7 @@ const styles = StyleSheet.create({
   depthGaugeCard: { padding: Spacing.md, borderRadius: Radius.md, borderWidth: 1, gap: Spacing.sm },
   depthGaugeHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   depthGaugeTrack: { height: 20, borderRadius: Radius.pill, overflow: 'hidden', position: 'relative' },
-  depthTargetZone: { position: 'absolute', top: 0, bottom: 0, backgroundColor: 'rgba(48,209,88,0.2)', borderRadius: Radius.pill },
+  depthTargetZone: { position: 'absolute', top: 0, bottom: 0, backgroundColor: alpha(Feedback.good, 0.2), borderRadius: Radius.pill },
   depthMarker: { position: 'absolute', top: 2, bottom: 2, width: 4, marginLeft: -2, borderRadius: 2 },
   trendCard: { marginTop: Spacing.md, padding: Spacing.md, borderRadius: Radius.md, borderWidth: 1 },
 });

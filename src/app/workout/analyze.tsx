@@ -13,6 +13,7 @@ import { AnalyzeVideoView, type AnalyzeVideoHandle } from '@/pose/AnalyzeVideoVi
 import type { PoseFrame } from '@/pose/types';
 import { useSessionStore } from '@/store/session';
 import { listSessions, saveSession } from '@/storage/db';
+import { schedulePushToCloud } from '@/lib/icloudSync';
 import { Spacing } from '@/theme/palette';
 import { useTheme } from '@/theme/useTheme';
 
@@ -54,6 +55,7 @@ export default function AnalyzeVideoScreen() {
         previousBest,
       });
       await saveSession(id, exercise.name, createdAt, summary, uri ?? null, engine.getTimeline(), aspect).catch(() => {});
+      schedulePushToCloud();
       router.replace({ pathname: '/workout/review/[id]', params: { id } });
     } catch {
       router.replace('/(tabs)');
