@@ -397,7 +397,7 @@ export function ExerciseTracker({
         {tracking && (isHold ? live.holdSeconds === 0 && live.attempts === 0 : live.reps === 0) ? (
           <View style={[styles.scannerStatus, { borderColor: t.ink.hairline }]}>
             <View style={[styles.scannerDot, { backgroundColor: t.ink.muted }]} />
-            <Text variant="caption" tone="secondary">Didn&apos;t find anything yet</Text>
+            <Text variant="caption" tone="secondary">No reps yet</Text>
           </View>
         ) : null}
         <Pressable
@@ -607,11 +607,9 @@ function FormBadge({ quality }: { quality: number }) {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: Surface.base },
   stage: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: Surface.base },
-  topBar: { position: 'absolute', top: 56, left: 0, right: 0, alignItems: 'center', gap: 6 },
+  topBar: { position: 'absolute', top: 56, left: Spacing.lg, right: Spacing.lg, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: Spacing.sm, zIndex: 4 },
   scannerStatus: {
-    position: 'absolute',
-    top: 0,
-    left: Spacing.lg,
+    flexShrink: 1,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
@@ -632,13 +630,14 @@ const styles = StyleSheet.create({
     borderRadius: Radius.pill,
     borderWidth: 1,
     backgroundColor: 'rgba(0,0,0,0.45)',
+    flexShrink: 1,
   },
   errText: { paddingHorizontal: Spacing.lg, textAlign: 'center' },
   center: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, alignItems: 'center', justifyContent: 'center' },
   gate: { alignItems: 'center', gap: Spacing.sm, paddingHorizontal: Spacing.xl },
   count: { fontSize: 120, fontWeight: '800', color: '#FFFFFF', fontVariant: ['tabular-nums'] },
   hud: { flex: 1, justifyContent: 'flex-end', alignItems: 'center', paddingBottom: Spacing.xxl, gap: Spacing.lg },
-  timerWrap: { flex: 1, justifyContent: 'center' },
+  timerWrap: { flex: 1, justifyContent: 'center', paddingTop: 120 },
   metric: { alignItems: 'center' },
   goalPill: {
     flexDirection: 'row',
