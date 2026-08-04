@@ -130,10 +130,22 @@ export const POSE_HTML = `<!DOCTYPE html>
     }
     connections = connectionsFrom(PoseLandmarker);
 
+    // Prepare the tracker before opening the camera. The native screen can
+    // show a useful first-run message while the model downloads and caches.
+    post({ type:'prepared' });
+    await new Promise(function(resolve){ window.__startCamera = resolve; });
+
     try {
       setStatus('Requesting camera');
       var facing = window.__facing || 'user';
-      var stream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode: facing }, audio:false });
+      // A predictable 720p/30 FPS stream is faster and more stable than letting
+      // each phone choose a high-resolution camera mode for every frame.
+      var stream = await navigator.mediaDevices.getUserMedia({ video:{
+        facingMode: facing,
+        width: { ideal: 1280, max: 1280 },
+        height: { ideal: 720, max: 720 },
+        frameRate: { ideal: 30, max: 30 }
+      }, audio:false });
       video.srcObject = stream;
       await video.play();
       // Undo any digital zoom the camera applied by default (show true 1x FOV).
