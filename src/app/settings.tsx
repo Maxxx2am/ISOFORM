@@ -11,7 +11,6 @@ import { ActivityIndicator, Alert, Linking, Pressable, ScrollView, Share, StyleS
 import { BackButton } from '@/components/BackButton';
 import { BodyStatsFields } from '@/components/BodyStatsFields';
 import { ListGroup, ListRow, SectionLabel } from '@/components/ListGroup';
-import { PrimaryButton } from '@/components/PrimaryButton';
 import { Screen } from '@/components/Screen';
 import { Segmented } from '@/components/Segmented';
 import { Text } from '@/components/Text';
@@ -44,6 +43,20 @@ export default function SettingsScreen() {
     if (enabled) {
       await pullFromCloud();
       await pushToCloud();
+    }
+  };
+
+  const onSyncNow = async () => {
+    if (!s.iCloudSyncEnabled || !isICloudAvailable()) {
+      Alert.alert('iCloud unavailable', 'Turn on iCloud backup and make sure you are signed into iCloud on this device.');
+      return;
+    }
+    setBusy('icloud');
+    try {
+      await pullFromCloud();
+      await pushToCloud();
+    } finally {
+      setBusy(null);
     }
   };
 
@@ -303,6 +316,12 @@ export default function SettingsScreen() {
             right={<Switch value={s.iCloudSyncEnabled} onValueChange={onToggleICloud} trackColor={{ true: Feedback.good, false: t.surface.pressed }} thumbColor="#FFFFFF" />}
           />
           <ListRow
+            title="Sync now"
+            subtitle="Restore or back up your latest workout data"
+            onPress={busy ? undefined : onSyncNow}
+            right={busy === 'icloud' ? <ActivityIndicator size="small" color={t.ink.muted} /> : <Ionicons name="sync-outline" size={18} color={t.ink.muted} />}
+          />
+          <ListRow
             title="Export my data"
             subtitle="Share your full workout history as a JSON file"
             onPress={busy ? undefined : onExport}
@@ -336,8 +355,8 @@ export default function SettingsScreen() {
         </ListGroup>
       </View>
 
-      {/* Dev / testing tools */}
-      <View style={{ marginTop: Spacing.lg }}>
+      {/* Dev / testing tools stay out of production builds. */}
+      {__DEV__ ? <View style={{ marginTop: Spacing.lg }}>
         <SectionLabel>Developer</SectionLabel>
         <ListGroup>
           <ListRow
@@ -381,7 +400,7 @@ export default function SettingsScreen() {
           <ListRow title="App version" right={<Text variant="caption" tone="muted">{appVersion}</Text>} />
           <ListRow title="Device" right={<Text variant="caption" tone="muted" numberOfLines={1}>{deviceInfo || '—'}</Text>} />
         </ListGroup>
-      </View>
+      </View> : null}
 
       <Text variant="caption" tone="muted" style={styles.footer}>
         ISOFORM v{appVersion}

@@ -22,7 +22,6 @@ import { formatClock } from '@/lib/format';
 
 import { SkeletonOverlay } from '@/pose/SkeletonOverlay';
 import { useSessionStore } from '@/store/session';
-import { useSettings } from '@/store/settings';
 import { deleteSession, getSession, listSessionsForExercise, saveSession } from '@/storage/db';
 import { alpha, Feedback, formQualityColor, Radius, Spacing } from '@/theme/palette';
 import { useTheme } from '@/theme/useTheme';
@@ -462,7 +461,6 @@ function VideoReplay({
   showBar?: boolean;
 }) {
   const t = useTheme();
-  const { cameraFacing } = useSettings();
   // Front-camera recordings have the mirror BAKED INTO the video file's
   // pixels: VisionCamera's recorder writes the same (mirrored) sensor
   // buffers the frame processor sees, and useCameraPose un-mirrors only the
