@@ -607,7 +607,7 @@ function FormBadge({ quality }: { quality: number }) {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: Surface.base },
   stage: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: Surface.base },
-  topBar: { position: 'absolute', top: 56, left: Spacing.lg, right: Spacing.lg, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: Spacing.sm, zIndex: 4 },
+  topBar: { position: 'absolute', top: 96, left: Spacing.lg, right: Spacing.lg, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: Spacing.sm, zIndex: 4 },
   scannerStatus: {
     flexShrink: 1,
     flexDirection: 'row',
@@ -637,8 +637,8 @@ const styles = StyleSheet.create({
   gate: { alignItems: 'center', gap: Spacing.sm, paddingHorizontal: Spacing.xl },
   count: { fontSize: 120, fontWeight: '800', color: '#FFFFFF', fontVariant: ['tabular-nums'] },
   hud: { flex: 1, justifyContent: 'flex-end', alignItems: 'center', paddingBottom: Spacing.xxl, gap: Spacing.lg },
-  timerWrap: { flex: 1, justifyContent: 'center', paddingTop: 120 },
-  metric: { alignItems: 'center' },
+  timerWrap: { position: 'absolute', top: 235, left: 0, right: 0, alignItems: 'center' },
+  metric: { position: 'absolute', right: Spacing.lg, bottom: 160, alignItems: 'center' },
   goalPill: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -665,6 +665,11 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.72)',
   },
   cue: {
+    position: 'absolute',
+    bottom: 220,
+    left: Spacing.lg,
+    right: Spacing.lg,
+    justifyContent: 'center',
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing.sm,
@@ -672,7 +677,7 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.sm,
     borderRadius: Radius.pill,
   },
-  cuePlaceholder: { height: 44 },
+  cuePlaceholder: { position: 'absolute', bottom: 220, height: 44 },
   stop: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -682,9 +687,12 @@ const styles = StyleSheet.create({
     borderRadius: Radius.pill,
     borderWidth: 1,
     backgroundColor: 'rgba(255,255,255,0.04)',
+    position: 'absolute',
+    bottom: 20,
+    alignSelf: 'center',
   },
   cancel: { position: 'absolute', bottom: Spacing.xl, alignSelf: 'center', padding: Spacing.md },
-  warnBanner: { position: 'absolute', top: 100, left: Spacing.lg, right: Spacing.lg, alignItems: 'center' },
+  warnBanner: { position: 'absolute', top: 142, left: Spacing.lg, right: Spacing.lg, alignItems: 'center' },
   warnPill: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -694,6 +702,10 @@ const styles = StyleSheet.create({
     borderRadius: Radius.pill,
   },
   formRow: {
+    position: 'absolute',
+    bottom: 100,
+    left: 0,
+    right: 0,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
