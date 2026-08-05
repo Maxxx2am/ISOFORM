@@ -12,7 +12,7 @@ import { Text } from '@/components/Text';
 import { bodyInView } from '@/engine/angles';
 import { SessionEngine, type LiveState, type SessionSummary, type TimelineSample } from '@/engine/sessionEngine';
 import type { Exercise } from '@/exercises/types';
-import { announceGoal, initCoachAudio, playDing, stopCoachAudio, tripleBeep } from '@/lib/audio';
+import { initCoachAudio, playDing, stopCoachAudio, tripleBeep } from '@/lib/audio';
 import { formatClock } from '@/lib/format';
 import { persistBase64Video } from '@/lib/videoStorage';
 import { PoseCameraView, type PoseCameraHandle } from '@/pose/PoseCameraView';
@@ -65,7 +65,7 @@ export function ExerciseTracker({
 }) {
   const t = useTheme();
   const insets = useSafeAreaInsets();
-  const { mirrorFrontCamera, repHaptics, repDing, countdownSec, cameraFacing, workoutAlertStyle } =
+  const { mirrorFrontCamera, repHaptics, repDing, countdownSec, cameraFacing } =
     useSettings();
 
   const engine = useMemo(() => new SessionEngine(exercise), [exercise]);
@@ -229,20 +229,14 @@ export function ExerciseTracker({
           if (hitCheckpointsRef.current.has(v) || current < v) continue;
           hitCheckpointsRef.current.add(v);
           setHitCheckpoints((prev) => [...prev, v]);
-          if (workoutAlertStyle === 'voice') {
-            // Say the actual milestone ("30 push-ups"), not the word
-            // "checkpoint" — the number is what matters, especially mid-workout
-            // with several exercises' announcements back to back.
-            const spokenName = exercise.name.replace(/\s*\([^)]*\)/g, '');
-            announceGoal(goal.type === 'reps' ? `${v} ${spokenName}s.` : `${v} seconds.`);
-            prevGoodRef.current = null;
-          } else {
-            tripleBeep();
-          }
+          // Live tracking stays quiet: milestone feedback is a short tone only.
+          // Coaching is generated after the set, when the athlete can actually
+          // review and act on it instead of splitting attention mid-movement.
+          tripleBeep();
         }
       }
     },
-    [engine, exercise, goal, repHaptics, repDing, workoutAlertStyle],
+    [engine, exercise, goal, repHaptics, repDing],
   );
 
   usePoseSource({ active: !cameraActive && phase !== 'processing', onFrame });
@@ -382,7 +376,7 @@ export function ExerciseTracker({
               mirror={mirrorFrontCamera}
               accentColor={t.accent.color}
                failColor={live.activeSeverity === 'warn' ? formQualityColor(live.formQuality) : t.accent.color}
-               highlight={live.activeSeverity === 'warn' ? live.activeBodyPart as 'torso' | 'arm' | 'leg' | null : null}
+               highlight={null}
               hideLegs={!!exercise.hideLegs}
               sideView={exercise.view === 'side'}
               showBar={!!exercise.showBar}

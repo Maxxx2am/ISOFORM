@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import * as StoreReview from 'expo-store-review';
 import * as Sharing from 'expo-sharing';
+import * as Speech from 'expo-speech';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -875,7 +876,7 @@ function Report({
       </View>
 
       {/* Coach */}
-      <CoachCard summary={summary} previousBest={previousBest ?? null} formTrend={formTrend} />
+      <AICoachCard summary={summary} previousBest={previousBest ?? null} formTrend={formTrend} />
 
       {/* Form breakdown */}
       {summary.cues.length > 0 ? (
@@ -892,19 +893,44 @@ function Report({
   );
 }
 
-function CoachCard({ summary, previousBest, formTrend }: { summary: SessionSummary; previousBest: number | null; formTrend?: { dir: 'up' | 'down' | 'flat'; msg: string } | null }) {
+function AICoachCard({ summary, previousBest, formTrend }: { summary: SessionSummary; previousBest: number | null; formTrend?: { dir: 'up' | 'down' | 'flat'; msg: string } | null }) {
   const t = useTheme();
   const { verdict, advice } = coachNotes(summary, { previousBest });
+  const [speaking, setSpeaking] = useState(false);
+  const spokenReview = [verdict, ...advice].join(' ');
+  const toggleSpeech = () => {
+    if (speaking) {
+      Speech.stop().catch(() => {});
+      setSpeaking(false);
+      return;
+    }
+    setSpeaking(true);
+    Speech.speak(spokenReview, {
+      rate: 0.92,
+      onDone: () => setSpeaking(false),
+      onStopped: () => setSpeaking(false),
+      onError: () => setSpeaking(false),
+    });
+  };
   return (
-    <View style={[styles.coach, { backgroundColor: t.surface.raised, borderColor: t.ink.hairline }]}>
+    <View
+      style={[styles.coach, { backgroundColor: `${t.accent.color}0D`, borderColor: `${t.accent.color}45` }]}
+    >
       <View style={styles.coachHead}>
-        <View style={[styles.coachBadge, { backgroundColor: t.accent.color }]}>
-          <Ionicons name="person" size={16} color={t.accent.onColor} />
+        <View
+          style={[styles.coachBadge, { backgroundColor: t.accent.color }]}
+        >
+          <Ionicons name="sparkles" size={16} color={t.accent.onColor} />
         </View>
         <Text variant="heading" style={{ flex: 1 }}>
-          Coach
+          AI coach
         </Text>
+        <Pressable onPress={toggleSpeech} style={[styles.listenButton, { borderColor: `${t.accent.color}55` }]} accessibilityRole="button">
+          <Ionicons name={speaking ? 'stop' : 'volume-high-outline'} size={15} color={t.accent.color} />
+          <Text variant="caption" tone="accent">{speaking ? 'Stop' : 'Listen'}</Text>
+        </Pressable>
       </View>
+      <Text variant="caption" tone="muted" style={{ marginTop: Spacing.xs }}>Generated from your movement data</Text>
       <Text variant="body" style={{ marginTop: Spacing.xs }}>
         {verdict}
       </Text>
@@ -1185,7 +1211,8 @@ const styles = StyleSheet.create({
   },
   coach: { padding: Spacing.lg, borderRadius: Radius.lg, borderWidth: 1, marginTop: Spacing.sm },
   coachHead: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
-  coachBadge: { width: 28, height: 28, borderRadius: Radius.pill, alignItems: 'center', justifyContent: 'center' },
+   coachBadge: { width: 28, height: 28, borderRadius: Radius.pill, alignItems: 'center', justifyContent: 'center' },
+   listenButton: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: Spacing.sm, paddingVertical: 6, borderRadius: Radius.pill, borderWidth: 1 },
   adviceRow: { flexDirection: 'row', alignItems: 'flex-start', gap: Spacing.sm },
   coachTrend: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, marginTop: Spacing.sm, paddingTop: Spacing.sm, borderTopWidth: 1 },
   cueRow: {

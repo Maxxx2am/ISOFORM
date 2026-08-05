@@ -321,6 +321,23 @@ export default function InsightsScreen() {
             </View>
           ) : null}
 
+          {sessions[0] ? (
+            <Pressable
+              onPress={() => router.push({ pathname: '/workout/review/[id]', params: { id: sessions[0].id } })}
+              style={({ pressed }) => [styles.aiPreview, { backgroundColor: `${t.accent.color}0D`, borderColor: `${t.accent.color}45` }, pressed && { opacity: 0.78 }]}
+            >
+              <View style={[styles.aiPreviewIcon, { backgroundColor: t.accent.color }]}>
+                <Ionicons name="sparkles" size={17} color={t.accent.onColor} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text variant="label" tone="accent">AI COACH</Text>
+                <Text variant="body" style={{ marginTop: 3 }}>Your latest movement review is ready.</Text>
+                <Text variant="caption" tone="secondary" style={{ marginTop: 2 }}>Open it for cues and a listenable summary.</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={t.ink.muted} />
+            </Pressable>
+          ) : null}
+
           <View style={styles.statRow}>
             <StatBox label="Streak" value={String(insights.streakDays)} icon="flame" tint="#FF6A2E" />
             <StatBox label="Total sessions" value={String(insights.totalSessions)} icon="barbell" tint={Feedback.good} />
@@ -762,6 +779,8 @@ const styles = StyleSheet.create({
     gap: Spacing.md,
   },
   scoreValue: { fontSize: 36, fontWeight: '800', letterSpacing: -1 },
+  aiPreview: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md, marginTop: Spacing.sm, padding: Spacing.md, borderRadius: Radius.lg, borderWidth: 1 },
+  aiPreviewIcon: { width: 34, height: 34, borderRadius: Radius.pill, alignItems: 'center', justifyContent: 'center' },
   sparkline: { flexDirection: 'row', alignItems: 'flex-end', gap: 3, height: 56 },
   sparkBar: { width: 6, borderRadius: 3 },
   muscleCard: { borderRadius: Radius.md, borderWidth: 1, padding: Spacing.md, gap: Spacing.sm },

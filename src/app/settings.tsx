@@ -337,20 +337,6 @@ export default function SettingsScreen() {
             title="Mirror front camera"
             right={<Toggle value={s.mirrorFrontCamera} onChange={s.setMirrorFrontCamera} />}
           />
-          <ListRow
-            title="Goal alert"
-            subtitle="How a workout goal is announced"
-            right={
-              <Segmented<'sound' | 'voice'>
-                options={[
-                  { label: 'Sound', value: 'sound' },
-                  { label: 'Voice', value: 'voice' },
-                ]}
-                value={s.workoutAlertStyle}
-                onChange={s.setWorkoutAlertStyle}
-              />
-            }
-          />
         </ListGroup>
       </View>
 
@@ -396,8 +382,8 @@ export default function SettingsScreen() {
         <SectionLabel>Coaching</SectionLabel>
         <ListGroup>
           <ListRow
-            title="Voice coach"
-            subtitle="Speaks the key form fixes out loud"
+             title="Review voice"
+             subtitle="Read your post-session coaching aloud"
             right={<Toggle value={s.voiceCoach} onChange={s.setVoiceCoach} />}
           />
           <ListRow
