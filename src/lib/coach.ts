@@ -289,7 +289,13 @@ const CUE_ADVICE: Record<string, Record<string, string>> = {
   },
 };
 
-export type Coaching = { verdict: string; advice: string[] };
+export type Coaching = {
+  verdict: string;
+  wins: string[];
+  advice: string[];
+  nextStep: string;
+  progression: { name: string; ready: boolean } | null;
+};
 
 export function coachNotes(summary: SessionSummary, context?: { previousBest?: number | null }): Coaching {
   const ex = getExercise(summary.exerciseId);
@@ -340,6 +346,25 @@ export function coachNotes(summary: SessionSummary, context?: { previousBest?: n
   }
 
   const score = scoreSession(summary);
+  const quality = summary.formQuality ?? summary.consistencyScore ?? summary.depthScore ?? score;
+  const wins: string[] = [];
+  if (beatRecord) wins.push(`You set a new best at ${currentValue}${summary.mode === 'hold' ? ' seconds' : ' reps'}.`);
+  if (score >= 80) wins.push('Your overall movement quality was strong for this session.');
+  if (summary.depthScore != null && summary.depthScore >= 80) wins.push('You reached the target range with control.');
+  if (summary.consistencyScore != null && summary.consistencyScore >= 80) wins.push('Your repetitions stayed consistent from start to finish.');
+  if (summary.mode === 'reps' && summary.avgRepSeconds != null && summary.avgRepSeconds >= 1.2) wins.push('Your tempo gave each repetition enough control.');
+  if (summary.mode === 'hold' && summary.formQuality != null && summary.formQuality >= 80) wins.push('You held a stable shape through the attempt.');
+  if (wins.length === 0) wins.push('You completed the session and created a useful baseline to improve from.');
+
+  const volume = summary.mode === 'hold' ? summary.holdSeconds : summary.reps;
+  const consistentEnough = summary.consistencyScore == null || summary.consistencyScore >= 75;
+  const ready = !!next && score >= 80 && quality >= 75 && consistentEnough && volume >= (summary.mode === 'hold' ? 15 : 8);
+  const progression = next ? { name: next.name, ready } : null;
+  const nextStep = next
+    ? ready
+      ? `You have enough quality and volume to start testing ${next.name}. Keep the first attempts conservative.`
+      : `Repeat ${ex?.name ?? 'this movement'} until your quality is more consistent before testing ${next.name}.`
+    : 'Keep building clean volume and use the trends here to choose your next target.';
   const verdict = beatRecord
     ? 'A new personal best — great work.'
     : score >= 90
@@ -351,5 +376,5 @@ export function coachNotes(summary: SessionSummary, context?: { previousBest?: n
           : 'Good start — let’s clean up the fundamentals.';
 
   const natural = (text: string) => text.replace(/\s+[—–-]\s+/g, ', ');
-  return { verdict: natural(verdict), advice: advice.slice(0, 5).map(natural) };
+  return { verdict: natural(verdict), wins: wins.slice(0, 3).map(natural), advice: advice.slice(0, 5).map(natural), nextStep: natural(nextStep), progression };
 }

@@ -1,7 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import * as StoreReview from 'expo-store-review';
 import * as Sharing from 'expo-sharing';
-import * as Speech from 'expo-speech';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -876,7 +875,7 @@ function Report({
       </View>
 
       {/* Coach */}
-      <AICoachCard summary={summary} previousBest={previousBest ?? null} formTrend={formTrend} />
+      <MotionCoachCard summary={summary} previousBest={previousBest ?? null} formTrend={formTrend} />
 
       {/* Form breakdown */}
       {summary.cues.length > 0 ? (
@@ -893,25 +892,10 @@ function Report({
   );
 }
 
-function AICoachCard({ summary, previousBest, formTrend }: { summary: SessionSummary; previousBest: number | null; formTrend?: { dir: 'up' | 'down' | 'flat'; msg: string } | null }) {
+function MotionCoachCard({ summary, previousBest, formTrend }: { summary: SessionSummary; previousBest: number | null; formTrend?: { dir: 'up' | 'down' | 'flat'; msg: string } | null }) {
   const t = useTheme();
-  const { verdict, advice } = coachNotes(summary, { previousBest });
-  const [speaking, setSpeaking] = useState(false);
-  const spokenReview = [verdict, ...advice].join(' ');
-  const toggleSpeech = () => {
-    if (speaking) {
-      Speech.stop().catch(() => {});
-      setSpeaking(false);
-      return;
-    }
-    setSpeaking(true);
-    Speech.speak(spokenReview, {
-      rate: 0.92,
-      onDone: () => setSpeaking(false),
-      onStopped: () => setSpeaking(false),
-      onError: () => setSpeaking(false),
-    });
-  };
+  const { wins, advice, nextStep, progression } = coachNotes(summary, { previousBest });
+  const readyForNext = progression?.ready ?? false;
   return (
     <View
       style={[styles.coach, { backgroundColor: `${t.accent.color}0D`, borderColor: `${t.accent.color}45` }]}
@@ -920,30 +904,49 @@ function AICoachCard({ summary, previousBest, formTrend }: { summary: SessionSum
         <View
           style={[styles.coachBadge, { backgroundColor: t.accent.color }]}
         >
-          <Ionicons name="sparkles" size={16} color={t.accent.onColor} />
+          <Ionicons name="analytics-outline" size={16} color={t.accent.onColor} />
         </View>
         <Text variant="heading" style={{ flex: 1 }}>
-          AI coach
+          Motion coach
         </Text>
-        <Pressable onPress={toggleSpeech} style={[styles.listenButton, { borderColor: `${t.accent.color}55` }]} accessibilityRole="button">
-          <Ionicons name={speaking ? 'stop' : 'volume-high-outline'} size={15} color={t.accent.color} />
-          <Text variant="caption" tone="accent">{speaking ? 'Stop' : 'Listen'}</Text>
-        </Pressable>
       </View>
-      <Text variant="caption" tone="muted" style={{ marginTop: Spacing.xs }}>Generated from your movement data</Text>
-      <Text variant="body" style={{ marginTop: Spacing.xs }}>
-        {verdict}
-      </Text>
-      <View style={{ gap: Spacing.sm, marginTop: Spacing.sm }}>
-        {advice.map((a, i) => (
-          <View key={i} style={styles.adviceRow}>
-            <Ionicons name="arrow-forward" size={16} color={t.accent.color} style={{ marginTop: 3 }} />
-            <Text variant="body" tone="secondary" style={{ flex: 1 }}>
-              {a}
-            </Text>
+      <Text variant="caption" tone="muted" style={{ marginTop: Spacing.xs }}>Built from your landmarks, angles, reps, tempo, and form history</Text>
+      <Text variant="label" tone="muted" style={styles.aiSectionLabel}>WHAT WENT WELL</Text>
+      <View style={{ gap: Spacing.sm }}>
+        {wins.map((item) => (
+          <View key={item} style={styles.adviceRow}>
+            <Ionicons name="checkmark-circle" size={17} color={Feedback.good} style={{ marginTop: 2 }} />
+            <Text variant="body" tone="secondary" style={{ flex: 1 }}>{item}</Text>
           </View>
         ))}
       </View>
+      {advice.length > 0 ? (
+        <>
+          <Text variant="label" tone="muted" style={styles.aiSectionLabel}>WORK ON NEXT</Text>
+          <View style={{ gap: Spacing.sm }}>
+            {advice.slice(0, 3).map((item) => (
+              <View key={item} style={styles.adviceRow}>
+                <Ionicons name="arrow-forward" size={16} color={t.accent.color} style={{ marginTop: 3 }} />
+                <Text variant="body" tone="secondary" style={{ flex: 1 }}>{item}</Text>
+              </View>
+            ))}
+          </View>
+        </>
+      ) : null}
+      {progression ? (
+        <View
+          style={[styles.readiness, { backgroundColor: t.surface.raised, borderColor: readyForNext ? `${Feedback.good}55` : t.ink.hairline }]}
+        >
+          <View style={{ flex: 1 }}>
+            <Text variant="label" tone={readyForNext ? 'accent' : 'muted'}>{readyForNext ? 'READY TO PROGRESS' : 'PROGRESSION CHECK'}</Text>
+            <Text variant="body" style={{ marginTop: 3 }}>{progression.name}</Text>
+            <Text variant="caption" tone="secondary" style={{ marginTop: 2 }}>
+              {nextStep}
+            </Text>
+          </View>
+          <Ionicons name={readyForNext ? 'trending-up' : 'lock-closed-outline'} size={20} color={readyForNext ? Feedback.good : t.ink.muted} />
+        </View>
+      ) : null}
       {formTrend ? (
         <View style={[styles.coachTrend, { borderColor: t.ink.hairline }]}>
           <Ionicons
@@ -1211,8 +1214,9 @@ const styles = StyleSheet.create({
   },
   coach: { padding: Spacing.lg, borderRadius: Radius.lg, borderWidth: 1, marginTop: Spacing.sm },
   coachHead: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
-   coachBadge: { width: 28, height: 28, borderRadius: Radius.pill, alignItems: 'center', justifyContent: 'center' },
-   listenButton: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: Spacing.sm, paddingVertical: 6, borderRadius: Radius.pill, borderWidth: 1 },
+  coachBadge: { width: 28, height: 28, borderRadius: Radius.pill, alignItems: 'center', justifyContent: 'center' },
+  aiSectionLabel: { marginTop: Spacing.lg, marginBottom: -Spacing.xs },
+  readiness: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md, marginTop: Spacing.lg, padding: Spacing.md, borderRadius: Radius.md, borderWidth: 1 },
   adviceRow: { flexDirection: 'row', alignItems: 'flex-start', gap: Spacing.sm },
   coachTrend: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, marginTop: Spacing.sm, paddingTop: Spacing.sm, borderTopWidth: 1 },
   cueRow: {

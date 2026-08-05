@@ -382,19 +382,9 @@ export default function SettingsScreen() {
         <SectionLabel>Coaching</SectionLabel>
         <ListGroup>
           <ListRow
-             title="Review voice"
-             subtitle="Read your post-session coaching aloud"
-            right={<Toggle value={s.voiceCoach} onChange={s.setVoiceCoach} />}
-          />
-          <ListRow
             title="Rep sound"
             subtitle="Ding on every counted rep"
             right={<Toggle value={s.repDing} onChange={s.setRepDing} />}
-          />
-          <ListRow
-            title="Haptic form cues"
-            subtitle="Buzz when your form slips"
-            right={<Toggle value={s.hapticCues} onChange={s.setHapticCues} />}
           />
           <ListRow
             title="Haptic per rep"

@@ -321,18 +321,33 @@ export default function InsightsScreen() {
             </View>
           ) : null}
 
-          {sessions[0] ? (
+          {insights.readyToProgress[0] ? (
             <Pressable
-              onPress={() => router.push({ pathname: '/workout/review/[id]', params: { id: sessions[0].id } })}
-              style={({ pressed }) => [styles.aiPreview, { backgroundColor: `${t.accent.color}0D`, borderColor: `${t.accent.color}45` }, pressed && { opacity: 0.78 }]}
+              onPress={() => navigateToExercise(insights.readyToProgress[0].nextSlug)}
+              style={({ pressed }) => [styles.progressPrompt, { backgroundColor: `${Feedback.good}0D`, borderColor: `${Feedback.good}45` }, pressed && { opacity: 0.78 }]}
             >
-              <View style={[styles.aiPreviewIcon, { backgroundColor: t.accent.color }]}>
-                <Ionicons name="sparkles" size={17} color={t.accent.onColor} />
+              <View style={[styles.progressPromptIcon, { backgroundColor: Feedback.good }]}>
+                <Ionicons name="trending-up" size={17} color="#000" />
               </View>
               <View style={{ flex: 1 }}>
-                <Text variant="label" tone="accent">AI COACH</Text>
-                <Text variant="body" style={{ marginTop: 3 }}>Your latest movement review is ready.</Text>
-                <Text variant="caption" tone="secondary" style={{ marginTop: 2 }}>Open it for cues and a listenable summary.</Text>
+                <Text variant="label" style={{ color: Feedback.good }}>READY FOR THE NEXT STEP</Text>
+                <Text variant="body" style={{ marginTop: 3 }}>Try {insights.readyToProgress[0].nextName}</Text>
+                <Text variant="caption" tone="secondary" style={{ marginTop: 2 }}>Your latest {insights.readyToProgress[0].exerciseName} scored {insights.readyToProgress[0].score}.</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={t.ink.muted} />
+            </Pressable>
+          ) : struggling[0] ? (
+            <Pressable
+              onPress={() => navigateToExercise(struggling[0].prev!.slug)}
+              style={({ pressed }) => [styles.progressPrompt, { backgroundColor: `${Feedback.warn}0D`, borderColor: `${Feedback.warn}45` }, pressed && { opacity: 0.78 }]}
+            >
+              <View style={[styles.progressPromptIcon, { backgroundColor: Feedback.warn }]}>
+                <Ionicons name="construct-outline" size={17} color="#000" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text variant="label" style={{ color: Feedback.warn }}>WORK ON NEXT</Text>
+                <Text variant="body" style={{ marginTop: 3 }}>Build {struggling[0].prev!.name}</Text>
+                <Text variant="caption" tone="secondary" style={{ marginTop: 2 }}>{struggling[0].name} is averaging {struggling[0].avgScore}.</Text>
               </View>
               <Ionicons name="chevron-forward" size={18} color={t.ink.muted} />
             </Pressable>
@@ -779,8 +794,8 @@ const styles = StyleSheet.create({
     gap: Spacing.md,
   },
   scoreValue: { fontSize: 36, fontWeight: '800', letterSpacing: -1 },
-  aiPreview: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md, marginTop: Spacing.sm, padding: Spacing.md, borderRadius: Radius.lg, borderWidth: 1 },
-  aiPreviewIcon: { width: 34, height: 34, borderRadius: Radius.pill, alignItems: 'center', justifyContent: 'center' },
+  progressPrompt: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md, marginTop: Spacing.sm, padding: Spacing.md, borderRadius: Radius.lg, borderWidth: 1 },
+  progressPromptIcon: { width: 34, height: 34, borderRadius: Radius.pill, alignItems: 'center', justifyContent: 'center' },
   sparkline: { flexDirection: 'row', alignItems: 'flex-end', gap: 3, height: 56 },
   sparkBar: { width: 6, borderRadius: 3 },
   muscleCard: { borderRadius: Radius.md, borderWidth: 1, padding: Spacing.md, gap: Spacing.sm },
