@@ -41,11 +41,11 @@ export const Surface: SurfaceSet = {
   /** True black — app background. */
   base: '#000000',
   /** Cards, lists, sheets. */
-  raised: '#141416',
+  raised: '#111214',
   /** Inputs, nested cells. */
-  sunken: '#202024',
+  sunken: '#1A1C1F',
   /** Pressed / selected fill. */
-  pressed: '#2C2C31',
+  pressed: '#272A2D',
 };
 
 export const Ink: InkSet = {
@@ -61,7 +61,7 @@ export const Ink: InkSet = {
  * identical to the brand accent (#EF9F27), so a mid-range form score and a
  * brand-colored badge/CTA read as the same thing on the same screen. */
 export const Feedback = {
-  good: '#30D158',
+  good: '#82f300',
   warn: '#FFD60A',
   bad: '#FF453A',
 } as const;
@@ -81,7 +81,7 @@ export function formQualityColor(quality: number): string {
  * different things, not the same green twice.
  */
 export const Brand = {
-  primary: { color: '#5CE65C', onColor: '#04240A' },
+  primary: { color: '#82f300', onColor: '#04240A' },
 } as const;
 
 /** 4pt spacing scale. Page gutter is 20 (ISOMTRIC). */
@@ -98,8 +98,8 @@ export const Spacing = {
 /** Rounded, iOS-like. Cards 20–24, buttons/pills 999, sheets 28. */
 export const Radius = {
   sm: 14,
-  md: 20,
-  lg: 24,
+  md: 16,
+  lg: 22,
   sheet: 28,
   pill: 999,
 } as const;
@@ -124,7 +124,7 @@ export const Typography = {
 } as const;
 
 export const Accents = {
-  green: { id: 'green', label: 'Green', color: '#30D158', onColor: '#000000' },
+  green: { id: 'green', label: 'Green', color: '#82f300', onColor: '#000000' },
 } as const;
 export type AccentId = keyof typeof Accents;
 export const DEFAULT_ACCENT: AccentId = 'green';

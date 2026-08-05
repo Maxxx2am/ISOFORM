@@ -10,7 +10,7 @@ type Props = { muscles: Muscle[]; style?: ViewStyle };
 
 const GHOST_FILL = '#5e5e6633';
 
-const INTENSITY_COLORS = ['#5CE65C', '#5A9560', '#5B7264', '#5A6067'];
+const INTENSITY_COLORS = ['#82f300', '#87918A', '#6E7771', '#555B58'];
 
 const HIDDEN_PARTS: Slug[] = ['head', 'hair'];
 

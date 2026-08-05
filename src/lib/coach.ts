@@ -350,5 +350,6 @@ export function coachNotes(summary: SessionSummary, context?: { previousBest?: n
           ? 'Solid effort — here’s where to sharpen it.'
           : 'Good start — let’s clean up the fundamentals.';
 
-  return { verdict, advice: advice.slice(0, 5) };
+  const natural = (text: string) => text.replace(/\s+[—–-]\s+/g, ', ');
+  return { verdict: natural(verdict), advice: advice.slice(0, 5).map(natural) };
 }

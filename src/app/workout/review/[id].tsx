@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import * as StoreReview from 'expo-store-review';
 import * as Sharing from 'expo-sharing';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useVideoPlayer, VideoView } from 'expo-video';
@@ -7,6 +8,7 @@ import { Alert, Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { BackButton } from '@/components/BackButton';
+import { Atmosphere } from '@/components/Atmosphere';
 import { Confetti } from '@/components/Confetti';
 import { PrimaryButton } from '@/components/PrimaryButton';
 import { QualityGauge } from '@/components/QualityGauge';
@@ -18,6 +20,8 @@ import { scoreSession, type SessionSummary, type TimelineSample } from '@/engine
 import { getExercise, getNextProgression, getPrevProgression } from '@/exercises/data';
 import { coachNotes } from '@/lib/coach';
 import { schedulePushToCloud } from '@/lib/icloudSync';
+import { useSettings } from '@/store/settings';
+import { useSubscription } from '@/store/subscription';
 import { formatClock } from '@/lib/format';
 
 import { SkeletonOverlay } from '@/pose/SkeletonOverlay';
@@ -133,6 +137,11 @@ export default function ReviewScreen() {
   const [persisted, setPersisted] = useState(false);
   const unsaved = !!fromStore && !persisted;
   const [saving, setSaving] = useState(false);
+  const reviewPrompted = useSettings((s) => s.reviewPrompted);
+  const premiumReviewPrompted = useSettings((s) => s.premiumReviewPrompted);
+  const setReviewPrompted = useSettings((s) => s.setReviewPrompted);
+  const setPremiumReviewPrompted = useSettings((s) => s.setPremiumReviewPrompted);
+  const hasAllAccess = useSubscription((s) => s.hasAllAccess);
 
   const leave = useCallback(() => {
     clear();
@@ -147,12 +156,18 @@ export default function ReviewScreen() {
       await saveSession(fromStore.id, fromStore.exerciseName, fromStore.createdAt, summary, videoUri, timeline ?? [], videoAspect);
       schedulePushToCloud();
       setPersisted(true);
+      const shouldAsk = hasAllAccess ? !premiumReviewPrompted : !reviewPrompted;
+      if (shouldAsk && await StoreReview.isAvailableAsync()) {
+        if (hasAllAccess) setPremiumReviewPrompted(true);
+        else setReviewPrompted(true);
+        await StoreReview.requestReview().catch(() => {});
+      }
       leave();
     } catch {
       setSaving(false);
       Alert.alert("Couldn't save", 'Something went wrong saving this set. Try again.');
     }
-  }, [fromStore, summary, videoUri, timeline, videoAspect, saving, leave]);
+  }, [fromStore, summary, videoUri, timeline, videoAspect, saving, leave, hasAllAccess, premiumReviewPrompted, reviewPrompted, setPremiumReviewPrompted, setReviewPrompted]);
 
   const goBack = useCallback(() => {
     if (router.canGoBack()) router.back();
@@ -192,8 +207,9 @@ export default function ReviewScreen() {
 
   return (
     <>
-      <Screen scroll>
-      <View style={styles.header}>
+       <Screen scroll>
+       <Atmosphere />
+       <View style={styles.header}>
         <BackButton onPress={onBackPress} />
         <View style={{ flex: 1, gap: 2 }}>
           <Text variant="label" tone="muted">

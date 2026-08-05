@@ -100,7 +100,7 @@ export function PrimaryButton({
 
 const styles = StyleSheet.create({
   base: {
-    minHeight: 56,
+    minHeight: 54,
     borderRadius: Radius.pill,
     borderWidth: 1,
     alignItems: 'center',
@@ -108,6 +108,6 @@ const styles = StyleSheet.create({
     paddingVertical: 17,
     paddingHorizontal: Spacing.lg,
   },
-  baseHero: { minHeight: 60, paddingVertical: 19 },
+  baseHero: { minHeight: 58, paddingVertical: 17 },
   content: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
 });

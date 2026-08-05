@@ -34,7 +34,8 @@ type Msg =
   | { type: 'error'; where: string; message: string }
   | { type: 'dims'; w: number; h: number; duration: number }
   | { type: 'progress'; t: number; duration: number }
-  | { type: 'done' };
+  | { type: 'done' }
+  | { type: 'chunk-ack'; index: number };
 
 // Base64 chars per injectJavaScript call — keeps each RN->WebView bridge
 // message small so it doesn't stall or get dropped on lower-end devices.
@@ -51,6 +52,7 @@ export const MAX_VIDEO_BYTES = 60 * 1024 * 1024;
 export const AnalyzeVideoView = forwardRef<AnalyzeVideoHandle, AnalyzeVideoViewProps>(
   ({ onFrame, onStatus, onReady, onError, onProgress, onDims, onDone, hideLegs = false, sideView = false, showBar = false, mirror = false }, ref) => {
     const webRef = useRef<WebView>(null);
+    const ackWaiters = useRef(new Map<number, () => void>());
 
     useImperativeHandle(ref, () => ({
       loadAndAnalyze: async (fileUri: string, mime = 'video/mp4') => {
@@ -62,11 +64,18 @@ export const AnalyzeVideoView = forwardRef<AnalyzeVideoHandle, AnalyzeVideoViewP
         onStatus?.('Reading video');
         const base64 = await FileSystem.readAsStringAsync(fileUri, { encoding: FileSystem.EncodingType.Base64 });
         onStatus?.('Sending to analyzer');
+        let index = 0;
         for (let i = 0; i < base64.length; i += CHUNK_SIZE) {
           const chunk = base64.slice(i, i + CHUNK_SIZE);
-          webRef.current?.injectJavaScript(`window.__push(${JSON.stringify(chunk)});true;`);
-          // Yield a tick between chunks so the bridge doesn't choke on a burst.
-          await new Promise((r) => setTimeout(r, 0));
+          await new Promise<void>((resolve, reject) => {
+            const timeout = setTimeout(() => {
+              ackWaiters.current.delete(index);
+              reject(new Error('Video transfer timed out'));
+            }, 10000);
+            ackWaiters.current.set(index, () => { clearTimeout(timeout); resolve(); });
+            webRef.current?.injectJavaScript(`window.__push(${index},${JSON.stringify(chunk)});true;`);
+          });
+          index += 1;
         }
         webRef.current?.injectJavaScript(`window.__run(${JSON.stringify(mime)});true;`);
       },
@@ -101,6 +110,10 @@ export const AnalyzeVideoView = forwardRef<AnalyzeVideoHandle, AnalyzeVideoViewP
             break;
           case 'done':
             onDone?.();
+            break;
+          case 'chunk-ack':
+            ackWaiters.current.get(msg.index)?.();
+            ackWaiters.current.delete(msg.index);
             break;
         }
       },

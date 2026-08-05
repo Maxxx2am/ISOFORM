@@ -101,7 +101,10 @@ export default function TrainScreen() {
     <Screen scroll ref={scrollRef}>
       <Atmosphere />
       <View style={styles.header}>
-        <Text variant="title">Train</Text>
+        <View>
+          <Text variant="label" tone="muted">TODAY</Text>
+          <Text variant="title">Train</Text>
+        </View>
         <View style={{ flex: 1 }} />
         {streakDays > 0 ? (
           <Pressable onPress={() => router.push('/(tabs)/insights')} style={styles.streakPill} hitSlop={4}>
@@ -109,6 +112,25 @@ export default function TrainScreen() {
             <Text variant="heading" style={{ marginLeft: -6 }}>{streakDays}</Text>
           </Pressable>
         ) : null}
+      </View>
+
+      <View style={[styles.heroCard, { backgroundColor: t.surface.raised, borderColor: t.ink.hairlineStrong }]}>
+        <View style={styles.heroCopy}>
+          <Text variant="label" tone="accent">YOUR PRACTICE</Text>
+          <Text variant="hero" style={{ marginTop: Spacing.xs }}>
+            Move well.{`\n`}Get stronger.
+          </Text>
+          <Text tone="secondary" style={{ marginTop: Spacing.sm }}>
+            Pick a movement and let ISOFORM handle the counting, timing, and feedback.
+          </Text>
+        </View>
+        <PrimaryButton
+          label="Start a session"
+          variant="hero"
+          icon={<Ionicons name="arrow-forward" size={24} color={t.accent.onColor} />}
+          onPress={() => setAddOpen(true)}
+          style={{ marginTop: Spacing.lg }}
+        />
       </View>
 
       <ChallengeCardCmp sessions={sessions} />
@@ -157,14 +179,6 @@ export default function TrainScreen() {
         </View>
       ) : null}
 
-      <PrimaryButton
-        label="Start training"
-        variant="hero"
-        icon={<Ionicons name="arrow-forward" size={26} color={t.accent.onColor} />}
-        onPress={() => setAddOpen(true)}
-        style={{ marginTop: Spacing.xl }}
-      />
-
       {sessions && sessions.length > 0 ? (
         <View style={{ marginTop: Spacing.xl }}>
           <Text variant="label" tone="muted">Recent</Text>
@@ -174,7 +188,7 @@ export default function TrainScreen() {
                 <ListRow
                   key={s.id}
                   title={s.exerciseName}
-                  subtitle={`${formatRelativeDay(s.createdAt)} · ${formatClock(s.durationMs)}${s.note ? ' · 📝' : ''}`}
+                  subtitle={`${formatRelativeDay(s.createdAt)} · ${formatClock(s.durationMs)}${s.note ? ' · note' : ''}`}
                   onPress={() => router.push({ pathname: '/workout/review/[id]', params: { id: s.id } })}
                   right={
                     <Text variant="body" tone="secondary">
@@ -504,6 +518,8 @@ function PurchaseModal({
 
 const styles = StyleSheet.create({
   header: { paddingTop: Spacing.md, flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
+  heroCard: { marginTop: Spacing.lg, padding: Spacing.lg, borderRadius: Radius.lg, borderWidth: 1, overflow: 'hidden' },
+  heroCopy: { maxWidth: 310 },
   streakPill: { flexDirection: 'row', alignItems: 'center' },
   card: {
     marginTop: Spacing.sm,

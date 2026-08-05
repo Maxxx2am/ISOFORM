@@ -1,5 +1,5 @@
-import { memo, useEffect, useRef, useState } from 'react';
-import { Animated, Easing, StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
+import { memo, useState } from 'react';
+import { StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
 
 import { alpha, Feedback, Surface } from '@/theme/palette';
 
@@ -78,21 +78,10 @@ export const QualityGauge = memo(function QualityGauge({
   const half = MARKER_HEIGHT / 2;
   const inset = half + CAP_CLEARANCE;
   const centerPx = Math.min(trackHeight - inset, Math.max(inset, closeness * trackHeight));
-  const markerBottomPx = centerPx - half;
-
-  // Animated on the native UI thread (useNativeDriver) — see RepGauge's
-  // identical fix/comment. A JS-thread stall (starting text-to-speech is the
-  // confirmed case) used to show up as the marker instantly snapping to
-  // wherever the next frame said, which read as a glitch/freeze.
-  const animatedY = useRef(new Animated.Value(-markerBottomPx)).current;
-  useEffect(() => {
-    Animated.timing(animatedY, {
-      toValue: -markerBottomPx,
-      duration: 90,
-      easing: Easing.out(Easing.quad),
-      useNativeDriver: true,
-    }).start();
-  }, [animatedY, markerBottomPx]);
+  // Anchor at the top of the track. Keeping the marker and its animated
+  // coordinate in the same top-to-bottom space prevents the live overlay
+  // from translating in the wrong direction or beyond the visible bar.
+  const markerTopPx = trackHeight - centerPx - half;
 
   if (!visible) return null;
 
@@ -115,14 +104,14 @@ export const QualityGauge = memo(function QualityGauge({
       <View style={[styles.band, { bottom: `${WARN_CLOSENESS * 100}%`, height: `${(GOOD_CLOSENESS - WARN_CLOSENESS) * 100}%`, backgroundColor: alpha(Feedback.warn, 0.22) }]} />
       <View style={[styles.band, { bottom: `${GOOD_CLOSENESS * 100}%`, height: `${(1 - GOOD_CLOSENESS) * 100}%`, backgroundColor: alpha(Feedback.good, 0.22), borderTopLeftRadius: 12, borderTopRightRadius: 12 }]} />
 
-      <Animated.View
+      <View
         style={[
           styles.marker,
-          { bottom: 0, transform: [{ translateY: animatedY }], borderColor: color, backgroundColor: `${color}33` },
+          { top: markerTopPx, borderColor: color, backgroundColor: `${color}33` },
         ]}
       >
         <View style={[styles.markerCenterLine, { backgroundColor: color }]} />
-      </Animated.View>
+      </View>
     </View>
   );
 });

@@ -112,7 +112,7 @@ function ThemedRoot() {
               animation: 'fade',
             }}
           >
-            <Stack.Screen name="(tabs)" />
+            <Stack.Screen name="(tabs)" options={{ animation: 'none' }} />
             {/* gestureEnabled: false on all four of these — each one holds a
                 set/workout that hasn't been saved yet, and the iOS edge-swipe
                 back gesture is easy to trigger by accident while just

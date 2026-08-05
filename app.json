@@ -4,6 +4,10 @@
     "slug": "iso-form",
     "version": "1.0.1",
     "orientation": "portrait",
+    "platforms": [
+      "ios",
+      "android"
+    ],
     "icon": "./assets/images/icon.png",
     "scheme": "isoform",
     "userInterfaceStyle": "dark",
@@ -12,7 +16,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.maxxxdev.isoform",
-      "buildNumber": "31",
+      "buildNumber": "43",
       "entitlements": {
         "com.apple.developer.ubiquity-kvstore-identifier": "$(TeamIdentifierPrefix)$(CFBundleIdentifier)"
       },
@@ -57,7 +61,10 @@
             "useFrameworks": "static"
           }
         }
-      ]
+      ],
+      "@react-native-community/datetimepicker",
+      "expo-font",
+      "./plugins/withoutPushNotifications"
     ],
     "experiments": {},
     "extra": {

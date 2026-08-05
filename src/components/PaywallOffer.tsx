@@ -40,48 +40,35 @@ export function StreakHook({ active }: { active: boolean }) {
   );
 }
 
-/** Small rounded chip instead of bare corner text — enough to read as an
- * actual badge without turning into its own competing design element. */
-function BestValueTag() {
-  return (
-    <View style={styles.featuredTag}>
-      <Ionicons name="star" size={9} color="rgba(0,0,0,0.68)" />
-      <Text variant="label" style={styles.featuredTagText}>
-        Best value
-      </Text>
-    </View>
-  );
-}
-
-/** The two paywall plan rows, shared by every locked screen in the app so a
- * copy/pricing change never has to happen in more than one place. */
+/** The All Access offer, shared by every locked screen. Purchases are intentionally
+ * not wired until the app is ready for submission. */
 export function PlanRows({ exerciseName, lockedCount }: { exerciseName: string; lockedCount: number }) {
   const t = useTheme();
   return (
     <>
-      <Pressable style={[styles.buyBtn, { backgroundColor: t.surface.raised, borderColor: t.ink.hairline }]}>
-        <View style={{ flex: 1 }}>
-          <Text variant="heading">{exerciseName}</Text>
-          <Text variant="caption" tone="secondary">
-            Just this exercise
-          </Text>
-        </View>
-        <Text variant="heading" tone="accent">
-          $1/mo
+      <View style={styles.offerHeader}>
+        <Text variant="label" tone="accent">ISOFORM ALL ACCESS</Text>
+        <Text variant="hero" style={{ textAlign: 'center', marginTop: Spacing.xs }}>
+          Keep your momentum.
         </Text>
-      </Pressable>
-
-      {/* The free trial is All Access only — said once, right on its price,
-          not as a blanket banner that would (wrongly) read as covering the
-          $1 row too. */}
+        <Text variant="caption" tone="secondary" style={{ textAlign: 'center', marginTop: Spacing.xs }}>
+          One plan for every movement, every progression, and every review.
+        </Text>
+      </View>
+      <View
+        style={[styles.benefits, { backgroundColor: t.surface.raised, borderColor: t.ink.hairline }]}
+      >
+        <Benefit icon="scan-outline" label="Live rep counting and form coaching" />
+        <Benefit icon="videocam-outline" label="Import a clip for video review" />
+        <Benefit icon="trending-up-outline" label="Every progression and future movement" />
+      </View>
       <Pressable style={[styles.buyBtn, styles.buyBtnFeatured, { backgroundColor: Feedback.good, borderColor: Feedback.good }]}>
-        <BestValueTag />
         <View style={{ flex: 1 }}>
           <Text variant="heading" style={{ color: '#000' }}>
             All Access
           </Text>
           <Text variant="caption" style={{ color: 'rgba(0,0,0,0.6)' }}>
-            {lockedCount > 0 ? `Unlocks all ${lockedCount + 1}, plus every future one` : 'Every exercise, future updates'}
+            {lockedCount > 0 ? `${lockedCount + 1} exercises` : 'All exercises'}
           </Text>
         </View>
         <View style={{ alignItems: 'flex-end' }}>
@@ -101,7 +88,20 @@ export function PlanRows({ exerciseName, lockedCount }: { exerciseName: string; 
   );
 }
 
+function Benefit({ icon, label }: { icon: keyof typeof Ionicons.glyphMap; label: string }) {
+  const t = useTheme();
+  return (
+    <View style={styles.benefitRow}>
+      <Ionicons name={icon} size={16} color={t.accent.color} />
+      <Text variant="caption" tone="secondary" style={{ flex: 1 }}>{label}</Text>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
+  offerHeader: { alignItems: 'center', width: '100%', paddingHorizontal: Spacing.sm },
+  benefits: { width: '100%', padding: Spacing.md, borderRadius: Radius.md, borderWidth: 1, gap: Spacing.sm },
+  benefitRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
   hookRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -120,20 +120,4 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   buyBtnFeatured: { position: 'relative', paddingTop: Spacing.md + 10 },
-  featuredTag: {
-    position: 'absolute',
-    top: 6,
-    left: Spacing.md,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 3,
-    paddingHorizontal: 7,
-    paddingVertical: 2,
-    borderRadius: Radius.pill,
-    backgroundColor: 'rgba(0,0,0,0.14)',
-  },
-  featuredTagText: {
-    color: 'rgba(0,0,0,0.7)',
-    letterSpacing: 0.6,
-  },
 });

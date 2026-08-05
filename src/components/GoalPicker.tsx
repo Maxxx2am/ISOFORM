@@ -3,7 +3,7 @@ import { KeyboardAvoidingView, Modal, Platform, Pressable, StyleSheet, TextInput
 import { useEffect, useState } from 'react';
 
 import { Text } from '@/components/Text';
-import { Feedback, Radius, Spacing } from '@/theme/palette';
+import { alpha, Feedback, Radius, Spacing } from '@/theme/palette';
 import { useTheme } from '@/theme/useTheme';
 
 /**
@@ -128,7 +128,7 @@ export function GoalPicker({
                 onPress={() => toggle(v)}
                 style={[
                   styles.chip,
-                  { borderColor: on ? Feedback.good : t.ink.hairline, backgroundColor: on ? 'rgba(48,209,88,0.15)' : t.surface.raised },
+                  { borderColor: on ? Feedback.good : t.ink.hairline, backgroundColor: on ? alpha(Feedback.good, 0.15) : t.surface.raised },
                 ]}
               >
                 {on ? <Ionicons name="checkmark" size={14} color={Feedback.good} /> : null}

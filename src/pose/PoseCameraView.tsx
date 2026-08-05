@@ -16,6 +16,8 @@ type PoseCameraViewProps = {
   /** Human-readable status ("Loading model", "" when ready). */
   onStatus?: (status: string) => void;
   onReady?: () => void;
+  /** MediaPipe model is ready, but camera permission has not been requested yet. */
+  onPrepared?: () => void;
   onError?: (message: string) => void;
   /** Recorded clip as base64 (null if recording unavailable), with pixel size. */
   onVideo?: (base64: string | null, mime: string, w: number, h: number) => void;
@@ -33,6 +35,7 @@ type Msg =
   | { type: 'landmarks'; t: number; landmarks: { x: number; y: number; z: number; visibility: number }[] }
   | { type: 'status'; value: string }
   | { type: 'ready' }
+  | { type: 'prepared' }
   | { type: 'error'; where: string; message: string }
   | { type: 'video'; data: string | null; mime?: string; w?: number; h?: number };
 
@@ -42,7 +45,7 @@ type Msg =
  * Loaded with an https baseUrl so getUserMedia has a secure context.
  */
 export const PoseCameraView = forwardRef<PoseCameraHandle, PoseCameraViewProps>(
-  ({ onFrame, onStatus, onReady, onError, onVideo, facing = 'front', hideLegs = false, sideView = false, showBar = false }, ref) => {
+  ({ onFrame, onStatus, onReady, onPrepared, onError, onVideo, facing = 'front', hideLegs = false, sideView = false, showBar = false }, ref) => {
     const webRef = useRef<WebView>(null);
 
     useImperativeHandle(ref, () => ({
@@ -67,6 +70,12 @@ export const PoseCameraView = forwardRef<PoseCameraHandle, PoseCameraViewProps>(
           case 'ready':
             onReady?.();
             break;
+          case 'prepared':
+            onPrepared?.();
+            // Give the preparation state a beat to render before asking for
+            // camera permission. This avoids the first-run frozen preview.
+            setTimeout(() => webRef.current?.injectJavaScript('window.__startCamera && window.__startCamera(); true;'), 450);
+            break;
           case 'error':
             onError?.(`${msg.where}: ${msg.message}`);
             break;
@@ -75,7 +84,7 @@ export const PoseCameraView = forwardRef<PoseCameraHandle, PoseCameraViewProps>(
             break;
         }
       },
-      [onFrame, onStatus, onReady, onError, onVideo],
+      [onFrame, onStatus, onReady, onPrepared, onError, onVideo],
     );
 
     return (

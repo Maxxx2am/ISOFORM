@@ -24,8 +24,10 @@ export const useOnboarding = create<OnboardingState>()(
     {
       name: 'onboarding',
       storage: createJSONStorage(() => zustandKvStorage),
-      onRehydrateStorage: () => (state) => {
-        if (state) state.hasHydrated = true;
+      onRehydrateStorage: () => () => {
+        // Use Zustand's setter so subscribers rerender. Mutating the hydrated
+        // object directly leaves the startup screen mounted forever.
+        useOnboarding.setState({ hasHydrated: true });
       },
     },
   ),

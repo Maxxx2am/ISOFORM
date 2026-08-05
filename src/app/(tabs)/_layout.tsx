@@ -2,8 +2,8 @@ import { Ionicons } from '@expo/vector-icons';
 import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { BlurView } from 'expo-blur';
 import * as Haptics from 'expo-haptics';
-import { router, Tabs } from 'expo-router';
-import { useEffect, useRef } from 'react';
+import { router, Tabs, usePathname } from 'expo-router';
+import { useRef } from 'react';
 import { Animated, Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -93,8 +93,12 @@ export default function TabsLayout() {
 }
 
 function FloatingTabBar({ state, navigation }: BottomTabBarProps) {
+  const pathname = usePathname();
   const t = useTheme();
   const insets = useSafeAreaInsets();
+  const isTabRoute = pathname === '/' || pathname === '/insights';
+  if (!isTabRoute) return null;
+
   const bottom = Math.max(Spacing.lg, insets.bottom + Spacing.xs);
 
   return (
@@ -124,7 +128,7 @@ function FloatingTabBar({ state, navigation }: BottomTabBarProps) {
           {state.routes.map((route, index) => {
             const meta = TAB_META[route.name];
             if (!meta) return null;
-            const focused = state.index === index;
+            const focused = pathname === `/${route.name}` || (route.name === 'index' && pathname === '/');
             const onPress = () => {
               const event = navigation.emit({ type: 'tabPress', target: route.key, canPreventDefault: true });
               if (!focused && !event.defaultPrevented) navigation.navigate(route.name);
@@ -150,16 +154,6 @@ function TabButton({
 }) {
   const t = useTheme();
   const { scale, onPressIn, onPressOut } = usePressScale(false);
-  const focusAnim = useRef(new Animated.Value(focused ? 1 : 0)).current;
-
-  useEffect(() => {
-    Animated.timing(focusAnim, { toValue: focused ? 1 : 0, duration: 150, useNativeDriver: false }).start();
-  }, [focused, focusAnim]);
-
-  const backgroundColor = focusAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: ['rgba(0,0,0,0)', t.accent.color],
-  });
   const color = focused ? t.accent.onColor : t.ink.muted;
 
   return (
@@ -182,8 +176,8 @@ function TabButton({
           justifyContent: 'center',
           gap: 7,
           borderRadius: Radius.pill,
-          backgroundColor,
-          transform: [{ scale: Animated.multiply(scale, focusAnim.interpolate({ inputRange: [0, 1], outputRange: [1, 1.02] })) }],
+          backgroundColor: focused ? t.accent.color : 'transparent',
+          transform: [{ scale }],
         }}
       >
         <Ionicons name={meta.icon} size={20} color={color} />

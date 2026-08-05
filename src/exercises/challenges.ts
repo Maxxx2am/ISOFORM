@@ -53,10 +53,6 @@ function dayIndex(date: Date): number {
   return Math.floor((date.getTime() - start) / 86_400_000);
 }
 
-function todayString(): string {
-  return new Date().toISOString().slice(0, 10);
-}
-
 function seedFrom(index: number): number {
   let s = Math.abs(index);
   s = Math.imul(s ^ (s >>> 16), 0x85ebca6b);
@@ -177,45 +173,6 @@ export function getDailyChallenge(
   };
 }
 
-/**
- * Score a completed session against the daily challenge.
- * Returns null if no sessions match. Score 0-100+.
- */
-export function scoreChallenge(
-  challenge: DailyChallenge,
-  sessions: SessionRecord[],
-): number | null {
-  const today = todayString();
-  const todaySessions = sessions.filter(
-    (s) => new Date(s.createdAt).toISOString().slice(0, 10) === today
-      && s.exerciseId === challenge.exerciseSlug,
-  );
-  if (todaySessions.length === 0) return null;
-
-  const bestReps = Math.max(...todaySessions.map((s) => s.reps));
-  const bestHold = Math.max(...todaySessions.map((s) => s.holdSeconds));
-  const formAvg = todaySessions.reduce((a, s) => a + (s.score ?? 70), 0) / todaySessions.length;
-
-  switch (challenge.mode) {
-    case 'max-time':
-      return Math.round(bestReps * (formAvg / 100));
-    case 'max-hold':
-      return Math.round(bestHold * (formAvg / 100));
-    case 'best-form':
-      return Math.round(Math.max(...todaySessions.map((s) => s.score ?? 70)));
-    case 'rep-target': {
-      const total = todaySessions.reduce((a, s) => a + s.reps, 0);
-      const onTarget = challenge.target != null && total >= challenge.target;
-      return Math.round((onTarget ? 100 : challenge.target ? (total / challenge.target) * 100 : bestReps) * (formAvg / 100));
-    }
-    case 'hold-target': {
-      const total = todaySessions.reduce((a, s) => a + s.holdSeconds, 0);
-      const onTarget = challenge.target != null && total >= challenge.target;
-      return Math.round(onTarget ? 100 : challenge.target ? (total / challenge.target) * 100 : bestHold);
-    }
-  }
-}
-
 /** A saved result is only complete when it belongs to today's challenge and
  * actually satisfies that challenge's minimum. Older builds could persist a
  * zero-value result, so the home card must not trust history blindly. */
@@ -226,41 +183,4 @@ export function isChallengeComplete(challenge: DailyChallenge, result: { challen
     ? result.bestHoldSeconds
     : result.bestReps;
   return value >= challenge.minimum;
-}
-
-const MOTIVATION = [
-  'That was solid — come back tomorrow.',
-  'Progress is slow, then sudden. Keep showing up.',
-  'One rep closer to where you want to be.',
-  "Consistency beats intensity. You're building the habit.",
-  'Good work. The version of you in 3 months will thank you.',
-  'Small wins compound. This was one of them.',
-  "You showed up. That's the hardest part done.",
-  "Day by day, rep by rep — you're getting stronger.",
-  'Rest well, come back hungry tomorrow.',
-  'The only bad workout is the one you skipped.',
-  'Form > speed. Depth > ego. You got this.',
-  "You're already ahead of everyone still on the couch.",
-  'That rep count is climbing. Keep feeding it.',
-  'Your future self is watching. Make them proud.',
-  'Strength is earned in the reps nobody sees. We saw these.',
-  'No shortcuts. Just work. You did the work.',
-  'Every session is a deposit in the strength bank.',
-  "Don't compare to others. Compare to yesterday. You're winning.",
-  'The grind pays off. Trust the process.',
-  'Form is looking sharp. Keep chasing perfect reps.',
-  'You pushed through. That mental edge matters more than muscle.',
-  "Tomorrow's challenge is already waiting. Rest up.",
-  'Respect the rest day. Growth happens when you recover.',
-  'Clean reps today, more reps tomorrow.',
-  "You're building more than muscle — you're building discipline.",
-  'The first 10 seconds of a hold are the hardest. You passed that.',
-  'Stay humble, stay hungry, stay consistent.',
-  "Numbers don't lie. Yours are moving up.",
-  'This is how champions are made — one set at a time.',
-  'Finish strong. Then come back and finish stronger.',
-];
-
-export function getMotivation(seed: number): string {
-  return MOTIVATION[seed % MOTIVATION.length];
 }

@@ -31,6 +31,14 @@ const CATEGORY_LABEL: Record<ExerciseCategory, string> = Object.fromEntries(
   SECTIONS.map((s) => [s.key, s.label]),
 ) as Record<ExerciseCategory, string>;
 
+const COMING_SOON = [
+  { name: 'Biceps Curl', detail: 'Side-view arm tracking' },
+  { name: 'Shoulder Press', detail: 'Front-view arm path' },
+  { name: 'Reverse Lunge', detail: 'Side-view knee + hip control' },
+  { name: 'Glute Bridge', detail: 'Side-view hip extension' },
+  { name: 'Bent-Over Row', detail: 'Side-view back + elbow path' },
+];
+
 /** Short scannable tag instead of the exercise's full marketing summary —
  * e.g. "Upper body · Chest". */
 function tagFor(ex: Exercise): string {
@@ -81,6 +89,7 @@ export default function SearchScreen() {
     () => !hasAllAccess ? exercises.filter((e) => FREE_EXERCISES.includes(e.slug) && !favoriteSlugs.has(e.slug)) : [],
     [exercises, favoriteSlugs, hasAllAccess],
   );
+  const visibleSections = sections;
   const [buyTarget, setBuyTarget] = useState<Exercise | null>(null);
   const setOverlayOpen = useUiStore((s) => s.setOverlayOpen);
   useEffect(() => {
@@ -125,8 +134,15 @@ export default function SearchScreen() {
       <Atmosphere />
       <View style={styles.header}>
         <BackButton />
-        <Text variant="title">Search</Text>
+        <View style={{ flex: 1 }}>
+          <Text variant="label" tone="muted">MOVEMENT LIBRARY</Text>
+          <Text variant="title">Find your next move</Text>
+        </View>
       </View>
+
+      <Text tone="secondary" style={{ marginTop: Spacing.xs }}>
+        Browse by goal, body area, or the movement you want to improve.
+      </Text>
 
       <View style={[styles.search, { backgroundColor: t.surface.raised, borderColor: t.ink.hairline }]}>
         <Ionicons name="search" size={17} color={t.ink.muted} />
@@ -150,6 +166,9 @@ export default function SearchScreen() {
           </Text>
         ) : (
           <View style={{ marginTop: Spacing.md }}>
+            <Text variant="caption" tone="muted" style={{ marginBottom: Spacing.sm, marginLeft: 4 }}>
+              {results.length} result{results.length === 1 ? '' : 's'}
+            </Text>
             <ListGroup>{results.map(row)}</ListGroup>
           </View>
         )
@@ -161,7 +180,7 @@ export default function SearchScreen() {
               <ListGroup>{availableExercises.map(row)}</ListGroup>
             </View>
           ) : null}
-          {favoritedExercises.length > 0 ? (
+          {(hasAllAccess ? favoritedExercises : favoritedExercises.filter((e) => FREE_EXERCISES.includes(e.slug))).length > 0 ? (
             <View style={{ marginTop: Spacing.lg }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: Spacing.sm, marginLeft: 4 }}>
                 <Text variant="label" tone="muted" style={{ marginBottom: 0, marginLeft: 0 }}>
@@ -169,15 +188,16 @@ export default function SearchScreen() {
                 </Text>
                 <Ionicons name="star" size={12} color={t.accent.color} style={{ marginBottom: 2 }} />
               </View>
-              <ListGroup>{favoritedExercises.map(row)}</ListGroup>
+               <ListGroup>{(hasAllAccess ? favoritedExercises : favoritedExercises.filter((e) => FREE_EXERCISES.includes(e.slug))).map(row)}</ListGroup>
             </View>
           ) : null}
-          {sections.map((section) => (
+          {visibleSections.map((section) => (
             <View key={section.key} style={{ marginTop: Spacing.lg }}>
               <SectionLabel>{section.label}</SectionLabel>
               <ListGroup>{section.items.map(row)}</ListGroup>
             </View>
           ))}
+           <ComingSoon />
         </>
       )}
 
@@ -189,6 +209,25 @@ export default function SearchScreen() {
         onClose={() => setBuyTarget(null)}
       />
     </Screen>
+  );
+}
+
+function ComingSoon() {
+  return (
+    <View style={{ marginTop: Spacing.lg }}>
+      <SectionLabel>Coming soon</SectionLabel>
+      <ListGroup>
+        {COMING_SOON.map((item) => (
+          <ListRow
+            key={item.name}
+            title={item.name}
+            subtitle={item.detail}
+            right={<Text variant="label" tone="muted">SOON</Text>}
+            dimmed
+          />
+        ))}
+      </ListGroup>
+    </View>
   );
 }
 

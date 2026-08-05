@@ -1,11 +1,13 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Stack } from 'expo-router';
 import { useMemo, useState } from 'react';
-import { Image, Pressable, StyleSheet, TextInput, View } from 'react-native';
+import { Image, Modal, Pressable, StyleSheet, TextInput, View } from 'react-native';
 
 import { BackButton } from '@/components/BackButton';
+import { Atmosphere } from '@/components/Atmosphere';
 import { Confetti } from '@/components/Confetti';
 import { ListGroup, ListRow, SectionLabel } from '@/components/ListGroup';
+import { PlanRows, StreakHook } from '@/components/PaywallOffer';
 import { PrimaryButton } from '@/components/PrimaryButton';
 import { Screen } from '@/components/Screen';
 import { Text } from '@/components/Text';
@@ -14,6 +16,7 @@ import type { Exercise } from '@/exercises/types';
 import { searchExercises } from '@/lib/search';
 import { RANK_ICON_ASPECT, RANK_ICONS, rankForValue, rankColor, type RankTier } from '@/lib/rank';
 import { useProfile, type Sex } from '@/store/profile';
+import { FREE_EXERCISES, useSubscription } from '@/store/subscription';
 import { Radius, Spacing } from '@/theme/palette';
 import { useTheme } from '@/theme/useTheme';
 
@@ -31,6 +34,8 @@ export default function RankCheckScreen() {
   const t = useTheme();
   const profile = useProfile();
   const exercises = useActiveExercises();
+  const hasAllAccess = useSubscription((s) => s.hasAllAccess);
+  const isExerciseUnlocked = (slug: string) => hasAllAccess || FREE_EXERCISES.includes(slug);
 
   const [exercise, setExercise] = useState<Exercise | null>(null);
   const [query, setQuery] = useState('');
@@ -40,6 +45,7 @@ export default function RankCheckScreen() {
   const [sex, setSex] = useState<Sex>(profile.sex);
   const [age, setAge] = useState<number | null>(profile.age);
   const [result, setResult] = useState<Result | null>(null);
+  const [paywallOpen, setPaywallOpen] = useState(false);
 
   const results = useMemo(() => searchExercises(query, exercises), [query, exercises]);
   const value = Number(valueText);
@@ -65,6 +71,7 @@ export default function RankCheckScreen() {
   return (
     <Screen scroll>
       <Stack.Screen options={{ headerShown: false }} />
+      <Atmosphere />
       <View style={styles.headerRow}>
         <BackButton />
         <Text variant="title">Check a rank</Text>
@@ -104,9 +111,22 @@ export default function RankCheckScreen() {
             </View>
             <View style={{ marginTop: Spacing.sm }}>
               <ListGroup>
-                {results.slice(0, 8).map((ex) => (
-                  <ListRow key={ex.id} title={ex.name} subtitle={ex.summary} chevron onPress={() => setExercise(ex)} />
-                ))}
+                {results.slice(0, 8).map((ex) => {
+                  const unlocked = isExerciseUnlocked(ex.slug);
+                  return (
+                    <ListRow
+                      key={ex.id}
+                      title={unlocked ? ex.name : ex.name}
+                      subtitle={ex.summary}
+                      chevron
+                      onPress={() => {
+                        if (unlocked) setExercise(ex);
+                        else setPaywallOpen(true);
+                      }}
+                      right={!unlocked ? <Ionicons name="lock-closed" size={16} color={t.ink.muted} /> : undefined}
+                    />
+                  );
+                })}
               </ListGroup>
             </View>
           </>
@@ -167,7 +187,32 @@ export default function RankCheckScreen() {
           <PrimaryButton label="Reveal rank" disabled={!canReveal} onPress={reveal} style={{ marginTop: Spacing.xl }} />
         </>
       ) : null}
+
+      <RankPaywall open={paywallOpen} onClose={() => setPaywallOpen(false)} />
     </Screen>
+  );
+}
+
+function RankPaywall({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const t = useTheme();
+  const exercises = useActiveExercises();
+  const lockedCount = exercises.length - 1;
+  return (
+    <Modal visible={open} transparent animationType="fade" onRequestClose={onClose}>
+      <Pressable style={styles.overlay} onPress={onClose}>
+        <Pressable style={[styles.sheet, { backgroundColor: t.surface.base, borderColor: t.ink.hairline }]}>
+          <Text variant="heading" style={{ marginTop: Spacing.sm, textAlign: 'center' }}>
+            This exercise is locked
+          </Text>
+          <Text tone="secondary" style={{ textAlign: 'center', marginTop: Spacing.xs }}>
+            No rep count, no form score, no video review — or on{' '}
+            {lockedCount > 0 ? `the ${lockedCount} other exercise${lockedCount === 1 ? '' : 's'}` : 'anything else'} still locked.
+          </Text>
+          <StreakHook active={open} />
+          <PlanRows exerciseName="All exercises" lockedCount={lockedCount} />
+        </Pressable>
+      </Pressable>
+    </Modal>
   );
 }
 
@@ -263,4 +308,15 @@ const styles = StyleSheet.create({
   sexRow: { flexDirection: 'row', gap: Spacing.sm, flex: 1 },
   sexChip: { flex: 1, paddingVertical: 8, borderRadius: Radius.pill, borderWidth: 1, alignItems: 'center' },
   revealBody: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end', alignItems: 'center' },
+  sheet: {
+    width: '100%',
+    borderTopLeftRadius: Radius.sheet,
+    borderTopRightRadius: Radius.sheet,
+    borderWidth: 1,
+    borderBottomWidth: 0,
+    padding: Spacing.lg,
+    paddingBottom: Spacing.xxl,
+    gap: Spacing.md,
+  },
 });

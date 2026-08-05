@@ -5,7 +5,7 @@ import { Modal, Pressable, StyleSheet, View } from 'react-native';
 import { PrimaryButton } from '@/components/PrimaryButton';
 import { Text } from '@/components/Text';
 import type { Exercise } from '@/exercises/types';
-import { alpha, Brand, Ink, Spacing, Surface } from '@/theme/palette';
+import { alpha, Brand, Ink, Radius, Spacing, Surface } from '@/theme/palette';
 import { useTheme } from '@/theme/useTheme';
 
 type Props = {
@@ -22,6 +22,7 @@ export function ExerciseSetupTip({ exercise, onContinue }: Props) {
     <Modal visible transparent animationType="fade" statusBarTranslucent>
       <View style={styles.backdrop}>
         <View style={[styles.card, { backgroundColor: t.surface.raised, borderColor: t.ink.hairlineStrong }]}>
+          <View style={styles.sheetHandle} />
           <View style={styles.directionRow}>
             <View style={styles.directionIcon}>
               {isFront ? (
@@ -95,18 +96,22 @@ const styles = StyleSheet.create({
   backdrop: {
     flex: 1,
     backgroundColor: alpha(Surface.base, 0.82),
-    justifyContent: 'center',
+    justifyContent: 'flex-end',
     alignItems: 'center',
-    padding: Spacing.page,
+    paddingTop: Spacing.xl,
   },
   card: {
     width: '100%',
-    maxWidth: 400,
+    maxWidth: 520,
     padding: Spacing.lg,
-    borderRadius: 24,
+    borderTopLeftRadius: Radius.sheet,
+    borderTopRightRadius: Radius.sheet,
     borderWidth: 1,
+    borderBottomWidth: 0,
+    paddingBottom: Spacing.xxl,
     gap: Spacing.lg,
   },
+  sheetHandle: { width: 40, height: 4, borderRadius: 2, alignSelf: 'center', backgroundColor: alpha(Ink.primary, 0.24), marginBottom: Spacing.xs },
   directionRow: {
     flexDirection: 'row',
     alignItems: 'center',

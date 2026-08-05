@@ -16,8 +16,8 @@ export function Atmosphere() {
       <Svg width={w} height={h} viewBox={`0 0 ${w} ${h}`}>
         <Defs>
           <RadialGradient id="atm" cx="50%" cy="0%" r="70%">
-            <Stop offset="0%" stopColor="#5CE65C" stopOpacity={0.06} />
-            <Stop offset="40%" stopColor="#5CE65C" stopOpacity={0.025} />
+            <Stop offset="0%" stopColor="#82f300" stopOpacity={0.06} />
+            <Stop offset="40%" stopColor="#82f300" stopOpacity={0.025} />
             <Stop offset="100%" stopColor="#000000" stopOpacity={0} />
           </RadialGradient>
         </Defs>

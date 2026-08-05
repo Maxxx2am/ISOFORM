@@ -1,9 +1,11 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
+import * as StoreReview from 'expo-store-review';
 import { useEffect, useRef, useState } from 'react';
 import { Alert, TextInput, View } from 'react-native';
 
 import { Confetti } from '@/components/Confetti';
+import { Atmosphere } from '@/components/Atmosphere';
 import { ListGroup, ListRow } from '@/components/ListGroup';
 import { PrimaryButton } from '@/components/PrimaryButton';
 import { Screen } from '@/components/Screen';
@@ -12,6 +14,8 @@ import { makeId } from '@/lib/format';
 
 import { useWorkoutRunStore } from '@/store/workoutRun';
 import { useWorkouts } from '@/store/workouts';
+import { useSettings } from '@/store/settings';
+import { useSubscription } from '@/store/subscription';
 import { saveSession } from '@/storage/db';
 import { schedulePushToCloud } from '@/lib/icloudSync';
 import { Feedback, Radius, Spacing } from '@/theme/palette';
@@ -22,6 +26,11 @@ export default function WorkoutSummaryScreen() {
   const finished = useWorkoutRunStore((s) => s.finished);
   const clear = useWorkoutRunStore((s) => s.clear);
   const addWorkout = useWorkouts((s) => s.addWorkout);
+  const reviewPrompted = useSettings((s) => s.reviewPrompted);
+  const premiumReviewPrompted = useSettings((s) => s.premiumReviewPrompted);
+  const setReviewPrompted = useSettings((s) => s.setReviewPrompted);
+  const setPremiumReviewPrompted = useSettings((s) => s.setPremiumReviewPrompted);
+  const hasAllAccess = useSubscription((s) => s.hasAllAccess);
   const [showConfetti, setShowConfetti] = useState(false);
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -70,6 +79,12 @@ export default function WorkoutSummaryScreen() {
         savedStepIdsRef.current.add(step.id);
       }
       setSaved(true);
+      const shouldAsk = hasAllAccess ? !premiumReviewPrompted : !reviewPrompted;
+      if (shouldAsk && await StoreReview.isAvailableAsync()) {
+        if (hasAllAccess) setPremiumReviewPrompted(true);
+        else setReviewPrompted(true);
+        await StoreReview.requestReview().catch(() => {});
+      }
     } catch {
       Alert.alert("Couldn't save", 'Something went wrong saving this workout. Try again.');
     } finally {
@@ -88,10 +103,14 @@ export default function WorkoutSummaryScreen() {
   return (
     <>
       <Screen scroll>
+        <Atmosphere />
         <View style={{ alignItems: 'center', gap: Spacing.sm, paddingTop: Spacing.xl }}>
-          <Ionicons name="checkmark-circle" size={44} color={Feedback.good} />
-          <Text variant="title">Workout complete</Text>
-          <Text tone="secondary">{finished.workoutName}</Text>
+          <View style={{ width: 60, height: 60, borderRadius: Radius.pill, backgroundColor: `${Feedback.good}18`, alignItems: 'center', justifyContent: 'center' }}>
+            <Ionicons name="checkmark" size={32} color={Feedback.good} />
+          </View>
+          <Text variant="label" tone="muted" style={{ marginTop: Spacing.sm }}>SESSION COMPLETE</Text>
+          <Text variant="title" style={{ textAlign: 'center' }}>{finished.workoutName}</Text>
+          <Text tone="secondary">{finished.steps.length} movement{finished.steps.length === 1 ? '' : 's'} finished</Text>
         </View>
 
         <View style={{ marginTop: Spacing.xl }}>

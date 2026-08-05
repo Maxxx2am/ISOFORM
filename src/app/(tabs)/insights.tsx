@@ -9,6 +9,7 @@ import { ACHIEVEMENT_BADGES, BADGE_ASPECT, BADGE_ICON_COLOR, computeAchievements
 import { Atmosphere } from '@/components/Atmosphere';
 import { CalendarHeatmap } from '@/components/CalendarHeatmap';
 import { ListGroup, ListRow, SectionLabel } from '@/components/ListGroup';
+import { PlanRows, StreakHook } from '@/components/PaywallOffer';
 import { RankShareCard, type RankShareCardHandle } from '@/components/RankShareCard';
 import { Screen } from '@/components/Screen';
 import { Text } from '@/components/Text';
@@ -17,9 +18,11 @@ import { formatClock, formatCount, formatDuration, formatRelativeDay } from '@/l
 import { MUSCLE_LABEL } from '@/lib/muscleLabels';
 import { computeRanks, RANK_ICON_ASPECT, RANK_ICONS, rankColor, tierRequirements } from '@/lib/rank';
 import { getExercise, getPrevProgression } from '@/exercises/data';
+import { useActiveExercises } from '@/exercises/registry';
 import type { Exercise } from '@/exercises/types';
 import { getSessions, type SessionRecord } from '@/lib/sessionCache';
 import { useProfile } from '@/store/profile';
+import { FREE_EXERCISES, useSubscription } from '@/store/subscription';
 import { Feedback, formQualityColor, Radius, Spacing } from '@/theme/palette';
 import { useTheme } from '@/theme/useTheme';
 
@@ -33,6 +36,16 @@ export default function InsightsScreen() {
   const [rankPickedId, setRankPickedId] = useState<string | null>(null);
   const [rankInfoOpen, setRankInfoOpen] = useState(false);
   const profile = useProfile();
+  const hasAllAccess = useSubscription((s) => s.hasAllAccess);
+  const isExerciseUnlocked = (slug: string) => hasAllAccess || FREE_EXERCISES.includes(slug);
+  const navigateToExercise = (slug: string) => {
+    if (isExerciseUnlocked(slug)) {
+      router.push({ pathname: '/exercise/[slug]', params: { slug } });
+    } else {
+      setPaywallOpen(true);
+    }
+  };
+  const [paywallOpen, setPaywallOpen] = useState(false);
   const rankShareRef = useRef<RankShareCardHandle>(null);
   const scrollRef = useRef<ScrollView>(null);
   const navigation = useNavigation<BottomTabNavigationProp<Record<string, object | undefined>>>();
@@ -130,7 +143,10 @@ export default function InsightsScreen() {
     <Screen scroll ref={scrollRef}>
       <Atmosphere />
       <View style={styles.header}>
-        <Text variant="title">Profile</Text>
+        <View>
+          <Text variant="label" tone="muted">YOUR PRACTICE</Text>
+          <Text variant="title">Progress</Text>
+        </View>
         <Pressable onPress={() => router.push('/settings')} hitSlop={10} style={styles.gearBtn}>
           <Ionicons name="settings-outline" size={22} color={t.ink.secondary} />
         </Pressable>
@@ -338,7 +354,7 @@ export default function InsightsScreen() {
                   );
                 })}
               </ScrollView>
-              <Pressable onPress={() => router.push({ pathname: '/exercise/[slug]', params: { slug: selected.exerciseId } })}>
+              <Pressable onPress={() => navigateToExercise(selected.exerciseId)}>
                 <ListGroup>
                   <ListRow
                     title="Personal record"
@@ -402,7 +418,7 @@ export default function InsightsScreen() {
                     key={r.exerciseId}
                     title={r.nextName}
                     subtitle={`Your ${r.exerciseName} is looking strong (${r.score})`}
-                    onPress={() => router.push({ pathname: '/exercise/[slug]', params: { slug: r.nextSlug } })}
+                    onPress={() => navigateToExercise(r.nextSlug)}
                     right={<Ionicons name="trending-up" size={18} color={Feedback.good} />}
                   />
                 ))}
@@ -419,7 +435,7 @@ export default function InsightsScreen() {
                     key={r.slug}
                     title={r.name}
                     subtitle={`Avg score ${r.avgScore} — try regressing to ${r.prev!.name}`}
-                    onPress={() => router.push({ pathname: '/exercise/[slug]', params: { slug: r.prev!.slug } })}
+                    onPress={() => navigateToExercise(r.prev!.slug)}
                     right={<Ionicons name="arrow-down" size={18} color={Feedback.warn} />}
                   />
                 ))}
@@ -486,11 +502,11 @@ export default function InsightsScreen() {
           <View style={{ marginTop: Spacing.lg }}>
             <SectionLabel>Recent</SectionLabel>
             <ListGroup>
-              {sessions.slice(0, 8).map((s) => (
+              {sessions.slice(0, 5).map((s) => (
                 <ListRow
                   key={s.id}
                   title={s.exerciseName}
-                  subtitle={`${formatRelativeDay(s.createdAt)} · ${formatClock(s.durationMs)}${s.note ? ' · 📝' : ''}`}
+                  subtitle={`${formatRelativeDay(s.createdAt)} · ${formatClock(s.durationMs)}${s.note ? ' · note' : ''}`}
                   onPress={() => router.push({ pathname: '/workout/review/[id]', params: { id: s.id } })}
                   right={
                     <View style={styles.bestRight}>
@@ -516,6 +532,7 @@ export default function InsightsScreen() {
         </>
       ) : null}
     </Screen>
+    <InsightPaywall open={paywallOpen} onClose={() => setPaywallOpen(false)} />
     <RankInfoModal
       visible={rankInfoOpen}
       onClose={() => setRankInfoOpen(false)}
@@ -725,10 +742,10 @@ const styles = StyleSheet.create({
   badgeGlowWrap: { width: 220, height: 220, alignItems: 'center', justifyContent: 'center' },
   rankProgressTrack: { height: 6, borderRadius: 3, overflow: 'hidden', marginTop: Spacing.sm, width: '100%' },
   rankProgressFill: { height: '100%', borderRadius: 3 },
-  statRow: { flexDirection: 'row', gap: Spacing.sm, marginTop: Spacing.sm },
-  statBox: {
-    flex: 1,
-    borderRadius: Radius.md,
+   statRow: { flexDirection: 'row', gap: Spacing.sm, marginTop: Spacing.sm },
+    statBox: {
+      flex: 1,
+      borderRadius: Radius.md,
     borderWidth: 1,
     padding: Spacing.md,
     alignItems: 'center',
@@ -791,3 +808,26 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 });
+
+function InsightPaywall({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const t = useTheme();
+  const exercises = useActiveExercises();
+  const lockedCount = exercises.length - 1;
+  return (
+    <Modal visible={open} transparent animationType="fade" onRequestClose={onClose}>
+      <Pressable style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end', alignItems: 'center' }} onPress={onClose}>
+        <Pressable style={{ width: '100%', borderTopLeftRadius: Radius.sheet, borderTopRightRadius: Radius.sheet, borderWidth: 1, borderBottomWidth: 0, padding: Spacing.lg, paddingBottom: Spacing.xxl, gap: Spacing.md, backgroundColor: t.surface.base, borderColor: t.ink.hairline }}>
+          <Text variant="heading" style={{ marginTop: Spacing.sm, textAlign: 'center' }}>
+            This exercise is locked
+          </Text>
+          <Text tone="secondary" style={{ textAlign: 'center', marginTop: Spacing.xs }}>
+            No rep count, no form score, no video review — or on{' '}
+            {lockedCount > 0 ? `the ${lockedCount} other exercise${lockedCount === 1 ? '' : 's'}` : 'anything else'} still locked.
+          </Text>
+          <StreakHook active={open} />
+          <PlanRows exerciseName="All exercises" lockedCount={lockedCount} />
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}

@@ -1,9 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
-import * as FileSystem from 'expo-file-system/legacy';
 import * as Haptics from 'expo-haptics';
 import { router } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, AppState, Pressable, StyleSheet, View } from 'react-native';
 
 import { CircularTimer } from '@/components/CircularTimer';
 import { QualityGauge } from '@/components/QualityGauge';
@@ -12,8 +11,9 @@ import { Text } from '@/components/Text';
 import { bodyInView } from '@/engine/angles';
 import { SessionEngine, type LiveState, type SessionSummary, type TimelineSample } from '@/engine/sessionEngine';
 import type { Exercise } from '@/exercises/types';
-import { announceGoal, initCoachAudio, playDing, speakCue, stopCoachAudio, tripleBeep } from '@/lib/audio';
+import { announceGoal, initCoachAudio, playDing, stopCoachAudio, tripleBeep } from '@/lib/audio';
 import { formatClock } from '@/lib/format';
+import { persistBase64Video } from '@/lib/videoStorage';
 import { PoseCameraView, type PoseCameraHandle } from '@/pose/PoseCameraView';
 import { SkeletonOverlay } from '@/pose/SkeletonOverlay';
 import { JOLT_THRESHOLD, MAX_SKIPPED, maxJolt } from '@/pose/stability';
@@ -63,7 +63,7 @@ export function ExerciseTracker({
   onPrimaryAction: (result: ExerciseTrackerResult) => void;
 }) {
   const t = useTheme();
-  const { mirrorFrontCamera, repHaptics, hapticCues, repDing, voiceCoach, countdownSec, cameraFacing, workoutAlertStyle } =
+  const { mirrorFrontCamera, repHaptics, repDing, countdownSec, cameraFacing, workoutAlertStyle } =
     useSettings();
 
   const engine = useMemo(() => new SessionEngine(exercise), [exercise]);
@@ -125,8 +125,8 @@ export function ExerciseTracker({
   const trackStartRef = useRef<number | null>(null);
   const lastFrameTRef = useRef(0);
   const finalizedRef = useRef(false);
+  const backgroundedRef = useRef(false);
   const prevReps = useRef(0);
-  const prevCue = useRef<string | null>(null);
   const hitCheckpointsRef = useRef<Set<number>>(new Set());
 
   useEffect(() => {
@@ -219,19 +219,6 @@ export function ExerciseTracker({
         if (repDing) playDing();
       }
       prevReps.current = next.reps;
-      if (next.activeCue && next.activeCue !== prevCue.current) {
-        if (hapticCues) Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {});
-        if (voiceCoach) {
-          speakCue(next.activeSay ?? next.activeCue, Date.now());
-          // Kicking off TTS can briefly stall frame delivery — forget the
-          // last-good pose so the next frame is accepted as a fresh anchor
-          // instead of being compared to a now-stale one and misread as a
-          // glitch (which silently drops it, eating a rep mid-announcement).
-          prevGoodRef.current = null;
-        }
-      }
-      prevCue.current = next.activeCue;
-
       // Workout goal: each checkpoint fires once as you pass it, never stops
       // the count — the athlete keeps going and decides when to move on.
       if (goal) {
@@ -253,7 +240,7 @@ export function ExerciseTracker({
         }
       }
     },
-    [engine, exercise, goal, repHaptics, hapticCues, repDing, voiceCoach, workoutAlertStyle],
+    [engine, exercise, goal, repHaptics, repDing, workoutAlertStyle],
   );
 
   usePoseSource({ active: !cameraActive && phase !== 'processing', onFrame });
@@ -298,9 +285,7 @@ export function ExerciseTracker({
       const aspect = w > 0 && h > 0 ? w / h : undefined;
       if (!base64) return finishSet(null);
       try {
-        const ext = mime.includes('mp4') ? 'mp4' : mime.includes('webm') ? 'webm' : 'mp4';
-        const uri = `${FileSystem.cacheDirectory}set-${Date.now()}.${ext}`;
-        await FileSystem.writeAsStringAsync(uri, base64, { encoding: FileSystem.EncodingType.Base64 });
+        const uri = await persistBase64Video(base64, mime);
         finishSet(uri, aspect);
       } catch {
         finishSet(null);
@@ -308,6 +293,19 @@ export function ExerciseTracker({
     },
     [finishSet],
   );
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state !== 'active' && phaseRef.current === 'tracking') {
+        backgroundedRef.current = true;
+        setPhase('processing');
+      } else if (state === 'active' && backgroundedRef.current) {
+        backgroundedRef.current = false;
+        finishSet(null);
+      }
+    });
+    return () => subscription.remove();
+  }, [finishSet]);
 
   const onPrimaryPress = useCallback(() => {
     if (phase === 'processing') return;
@@ -391,6 +389,16 @@ export function ExerciseTracker({
         )}
       </View>
 
+      {!showCamLoader && phase !== 'processing' ? (
+        <View pointerEvents="none" style={styles.frameGuide}>
+          <View style={styles.frameGuideTop} />
+          <View style={styles.frameGuideBottom} />
+          <Text variant="label" style={styles.frameGuideLabel}>
+            {fullBody ? 'READY' : 'FIT YOUR WHOLE BODY IN FRAME'}
+          </Text>
+        </View>
+      ) : null}
+
       {/* Top status / mode toggle */}
       <View style={styles.topBar} pointerEvents="box-none">
         {header ? <View style={styles.stepHeader}>{header}</View> : null}
@@ -400,22 +408,22 @@ export function ExerciseTracker({
             <Text variant="caption" tone="secondary">No reps yet</Text>
           </View>
         ) : null}
-        <Pressable
-          onPress={() => {
-            if (cameraActive) setUseDemo(true);
-            else {
-              setUseDemo(false);
-              setCamError(null);
-              setCamReady(false);
-            }
-          }}
-          style={[styles.chip, { borderColor: t.ink.hairline }]}
-        >
-          <Ionicons name={cameraActive ? 'videocam' : 'flask'} size={13} color={t.ink.secondary} />
-          <Text variant="caption" tone="secondary">
-            {cameraActive ? 'Live camera' : 'Demo mode'} · tap to switch
-          </Text>
-        </Pressable>
+        {__DEV__ ? (
+          <Pressable
+            onPress={() => {
+              if (cameraActive) setUseDemo(true);
+              else {
+                setUseDemo(false);
+                setCamError(null);
+                setCamReady(false);
+              }
+            }}
+            style={[styles.chip, { borderColor: t.ink.hairline }]}
+          >
+            <Ionicons name={cameraActive ? 'videocam' : 'flask'} size={13} color={t.ink.secondary} />
+            <Text variant="caption" tone="secondary">{cameraActive ? 'Live camera' : 'Demo mode'} · tap to switch</Text>
+          </Pressable>
+        ) : null}
         {camError ? (
           <Text variant="caption" tone="secondary" style={styles.errText}>
             Camera unavailable ({camError}). Showing demo.
@@ -435,7 +443,7 @@ export function ExerciseTracker({
 
       {/* Full-body gate / countdown */}
       {!showCamLoader && phase === 'setup' ? (
-        <View style={styles.center} pointerEvents="none">
+        <View style={styles.setupCenter} pointerEvents="none">
           {countdown != null ? (
             <Text style={styles.count}>{countdown}</Text>
           ) : (
@@ -452,6 +460,11 @@ export function ExerciseTracker({
                   {exercise.setup}
                 </Text>
               ) : null}
+              <View style={styles.readinessList}>
+                <ReadinessItem icon="sunny-outline" label="Use bright, even lighting" />
+                <ReadinessItem icon="phone-portrait-outline" label="Keep the phone stable and upright" />
+                <ReadinessItem icon="remove-outline" label="Clear the space around your body" />
+              </View>
             </View>
           )}
         </View>
@@ -494,7 +507,7 @@ export function ExerciseTracker({
             />
           </View>
 
-          <View style={styles.metric}>
+          <View style={[styles.metric, { backgroundColor: 'rgba(0,0,0,0.58)', borderColor: t.ink.hairline }]}>
             <Text variant="display" tone="accent">
               {metricValue}
             </Text>
@@ -531,36 +544,10 @@ export function ExerciseTracker({
             ) : null}
           </View>
 
-          {live.activeCue ? (
-            <View style={[styles.cue, { backgroundColor: Feedback.warn }]}>
-              <Ionicons name="alert-circle" size={18} color="#000" />
-              <Text variant="heading" style={{ color: '#000' }}>
-                {live.activeCue}
-              </Text>
-            </View>
-          ) : (
-            <View style={styles.cuePlaceholder} />
-          )}
-
-          <View style={styles.formRow}>
-            <FormBadge quality={live.formQuality} />
-            {!isHold && live.reps > 0 ? (
-              <Text variant="caption" style={{ marginLeft: Spacing.sm, color: 'rgba(255,255,255,0.85)' }}>
-                {live.cleanReps}/{live.reps} clean
-              </Text>
-            ) : null}
-          </View>
-
-          {live.formQuality < 50 && live.reps > 0 ? (
-            <View style={[styles.badFormBanner, { backgroundColor: Feedback.bad }]}>
-              <Ionicons name="warning" size={16} color="#fff" />
-              <Text variant="caption" style={{ color: '#fff' }}>
-                Bad form — focus on the cues above
-              </Text>
-            </View>
-          ) : null}
-
-          <Pressable onPress={onPrimaryPress} style={[styles.stop, { borderColor: t.ink.hairline }]}>
+          <Pressable
+            onPress={onPrimaryPress}
+            style={[styles.stop, { borderColor: t.ink.hairline }]}
+          >
             <Ionicons name={primaryActionIcon} size={22} color={t.ink.primary} />
             <Text variant="heading">{primaryActionLabel}</Text>
           </Pressable>
@@ -585,21 +572,11 @@ export function ExerciseTracker({
   );
 }
 
-function FormBadge({ quality }: { quality: number }) {
-  const color =
-    quality >= 80 ? Feedback.good
-    : quality >= 50 ? Feedback.warn
-    : Feedback.bad;
-  const label =
-    quality >= 80 ? 'Good form'
-    : quality >= 50 ? 'Fair form'
-    : 'Bad form';
+function ReadinessItem({ icon, label }: { icon: keyof typeof Ionicons.glyphMap; label: string }) {
   return (
-    <View style={[styles.formBadge, { borderColor: color }]}>
-      <View style={[styles.formDot, { backgroundColor: color }]} />
-      <Text variant="caption" style={{ color }}>
-        {label}
-      </Text>
+    <View style={styles.readinessItem}>
+      <Ionicons name={icon} size={14} color="rgba(255,255,255,0.72)" />
+      <Text variant="caption" style={{ color: 'rgba(255,255,255,0.72)' }}>{label}</Text>
     </View>
   );
 }
@@ -607,7 +584,7 @@ function FormBadge({ quality }: { quality: number }) {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: Surface.base },
   stage: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: Surface.base },
-  topBar: { position: 'absolute', top: 96, left: Spacing.lg, right: Spacing.lg, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: Spacing.sm, zIndex: 4 },
+  topBar: { position: 'absolute', top: 96, left: Spacing.lg, right: Spacing.lg, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: Spacing.sm, zIndex: 4 },
   scannerStatus: {
     flexShrink: 1,
     flexDirection: 'row',
@@ -620,7 +597,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.52)',
   },
   scannerDot: { width: 7, height: 7, borderRadius: 4 },
-  stepHeader: { paddingHorizontal: Spacing.lg, marginBottom: 2 },
+  stepHeader: { position: 'absolute', left: 0, paddingHorizontal: Spacing.lg, marginBottom: 2 },
   chip: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -634,11 +611,14 @@ const styles = StyleSheet.create({
   },
   errText: { paddingHorizontal: Spacing.lg, textAlign: 'center' },
   center: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, alignItems: 'center', justifyContent: 'center' },
-  gate: { alignItems: 'center', gap: Spacing.sm, paddingHorizontal: Spacing.xl },
+  setupCenter: { position: 'absolute', top: 0, bottom: 150, left: 0, right: 0, alignItems: 'center', justifyContent: 'center' },
+  gate: { alignItems: 'center', gap: Spacing.sm, paddingHorizontal: Spacing.xl, maxWidth: 360 },
+  readinessList: { marginTop: Spacing.md, gap: 5, alignItems: 'flex-start' },
+  readinessItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   count: { fontSize: 120, fontWeight: '800', color: '#FFFFFF', fontVariant: ['tabular-nums'] },
   hud: { flex: 1, justifyContent: 'flex-end', alignItems: 'center', paddingBottom: Spacing.xxl, gap: Spacing.lg },
-  timerWrap: { position: 'absolute', top: 235, left: 0, right: 0, alignItems: 'center' },
-  metric: { position: 'absolute', right: Spacing.lg, bottom: 160, alignItems: 'center' },
+  timerWrap: { position: 'absolute', top: 118, left: 0, right: 0, alignItems: 'center' },
+  metric: { position: 'absolute', bottom: 92, minWidth: 136, alignItems: 'center', paddingHorizontal: Spacing.md, paddingVertical: 8, borderWidth: 1, borderRadius: Radius.md },
   goalPill: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -664,20 +644,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     backgroundColor: 'rgba(0,0,0,0.72)',
   },
-  cue: {
-    position: 'absolute',
-    bottom: 220,
-    left: Spacing.lg,
-    right: Spacing.lg,
-    justifyContent: 'center',
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.sm,
-    paddingHorizontal: Spacing.lg,
-    paddingVertical: Spacing.sm,
-    borderRadius: Radius.pill,
-  },
-  cuePlaceholder: { position: 'absolute', bottom: 220, height: 44 },
   stop: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -692,7 +658,7 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
   },
   cancel: { position: 'absolute', bottom: Spacing.xl, alignSelf: 'center', padding: Spacing.md },
-  warnBanner: { position: 'absolute', top: 142, left: Spacing.lg, right: Spacing.lg, alignItems: 'center' },
+  warnBanner: { position: 'absolute', top: 320, left: Spacing.lg, right: Spacing.lg, alignItems: 'center' },
   warnPill: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -701,35 +667,8 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.sm,
     borderRadius: Radius.pill,
   },
-  formRow: {
-    position: 'absolute',
-    bottom: 100,
-    left: 0,
-    right: 0,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  formBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: Spacing.md,
-    paddingVertical: 4,
-    borderRadius: Radius.pill,
-    borderWidth: 1,
-  },
-  formDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-  },
-  badFormBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.sm,
-    paddingHorizontal: Spacing.lg,
-    paddingVertical: Spacing.sm,
-    borderRadius: Radius.pill,
-  },
+  frameGuide: { position: 'absolute', top: '18%', bottom: '22%', left: '15%', right: '15%', borderColor: 'rgba(255,255,255,0.28)', borderWidth: 1, borderStyle: 'dashed', borderRadius: Radius.lg, justifyContent: 'space-between' },
+  frameGuideTop: { height: 22, borderTopWidth: 2, borderLeftWidth: 2, borderRightWidth: 2, borderColor: 'rgba(130,243,0,0.72)', borderTopLeftRadius: Radius.sm, borderTopRightRadius: Radius.sm },
+  frameGuideBottom: { height: 22, borderBottomWidth: 2, borderLeftWidth: 2, borderRightWidth: 2, borderColor: 'rgba(130,243,0,0.72)', borderBottomLeftRadius: Radius.sm, borderBottomRightRadius: Radius.sm },
+  frameGuideLabel: { position: 'absolute', top: -26, alignSelf: 'center', color: 'rgba(255,255,255,0.72)' },
 });

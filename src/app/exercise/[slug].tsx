@@ -1,11 +1,13 @@
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
+import * as ImagePicker from 'expo-image-picker';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { Alert, Pressable, StyleSheet, View } from 'react-native';
 import Svg, { Circle, Defs, RadialGradient, Stop } from 'react-native-svg';
 
 import { BackButton } from '@/components/BackButton';
+import { Atmosphere } from '@/components/Atmosphere';
 import { GoalPickerSheet } from '@/components/GoalPicker';
 import { ListGroup, ListRow } from '@/components/ListGroup';
 import { LockBadge } from '@/components/LockBadge';
@@ -87,9 +89,22 @@ export default function ExerciseDetailScreen() {
     });
   };
 
+  const importVideo = async () => {
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert('Permission required', 'Allow photo library access to analyze a workout video.');
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['videos'], allowsEditing: false });
+    const asset = result.canceled ? null : result.assets[0];
+    if (!asset) return;
+    router.push({ pathname: '/workout/analyze', params: { slug: exercise.slug, uri: asset.uri, mime: asset.mimeType ?? 'video/mp4' } });
+  };
+
   return (
     <Screen scroll>
       <Stack.Screen options={{ headerShown: false }} />
+      <Atmosphere />
 
       <View style={styles.headerRow}>
         <BackButton />
@@ -141,6 +156,13 @@ export default function ExerciseDetailScreen() {
             icon={<Ionicons name="videocam" size={24} color={t.accent.onColor} />}
             style={{ marginTop: Spacing.md }}
             onPress={startTracking}
+          />
+          <PrimaryButton
+            label="Analyze a video"
+            variant="outline"
+            icon={<Ionicons name="cloud-upload-outline" size={21} color={t.ink.primary} />}
+            style={{ marginTop: Spacing.sm }}
+            onPress={importVideo}
           />
           {/* A plain ghost row, not a second bordered pill — "Train with
               camera" is the one real decision on this screen; the checkpoints

@@ -1,8 +1,10 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { Alert, StyleSheet, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { BackButton } from '@/components/BackButton';
+import { Atmosphere } from '@/components/Atmosphere';
 import { Screen } from '@/components/Screen';
 import { Text } from '@/components/Text';
 import { SessionEngine, type LiveState } from '@/engine/sessionEngine';
@@ -14,12 +16,14 @@ import type { PoseFrame } from '@/pose/types';
 import { useSessionStore } from '@/store/session';
 import { listSessions, saveSession } from '@/storage/db';
 import { schedulePushToCloud } from '@/lib/icloudSync';
+import { persistVideoUri } from '@/lib/videoStorage';
 import { Spacing } from '@/theme/palette';
 import { useTheme } from '@/theme/useTheme';
 
 export default function AnalyzeVideoScreen() {
-  const { slug, uri } = useLocalSearchParams<{ slug: string; uri: string }>();
+  const { slug, uri, mime } = useLocalSearchParams<{ slug: string; uri: string; mime?: string }>();
   const t = useTheme();
+  const insets = useSafeAreaInsets();
   const exercise = getExercise(slug);
   const setFinished = useSessionStore((s) => s.setFinished);
 
@@ -44,23 +48,24 @@ export default function AnalyzeVideoScreen() {
       const aspect = dims && dims.w > 0 && dims.h > 0 ? dims.w / dims.h : undefined;
       const priorBest = bestSessionFor(exercise.id, await listSessions().catch(() => []));
       const previousBest = priorBest ? (priorBest.reps > 0 ? priorBest.reps : priorBest.holdSeconds) : null;
-      setFinished({
+       const savedVideoUri = uri ? await persistVideoUri(uri, mime ?? 'video/mp4') : null;
+       setFinished({
         id,
         exerciseName: exercise.name,
         createdAt,
         summary,
         timeline: engine.getTimeline(),
-        videoUri: uri ?? null,
+         videoUri: savedVideoUri,
         videoAspect: aspect,
         previousBest,
       });
-      await saveSession(id, exercise.name, createdAt, summary, uri ?? null, engine.getTimeline(), aspect).catch(() => {});
+       await saveSession(id, exercise.name, createdAt, summary, savedVideoUri, engine.getTimeline(), aspect).catch(() => {});
       schedulePushToCloud();
       router.replace({ pathname: '/workout/review/[id]', params: { id } });
     } catch {
       router.replace('/(tabs)');
     }
-  }, [engine, exercise, setFinished, uri, dims]);
+  }, [engine, exercise, setFinished, uri, mime, dims]);
 
   const onFrame = useCallback(
     (frame: PoseFrame) => {
@@ -74,12 +79,12 @@ export default function AnalyzeVideoScreen() {
   const onReady = useCallback(() => {
     if (startedRef.current || !uri) return;
     startedRef.current = true;
-    analyzeRef.current?.loadAndAnalyze(uri).catch((e: Error) => {
+    analyzeRef.current?.loadAndAnalyze(uri, mime).catch((e: Error) => {
       Alert.alert('Couldn’t analyze this video', e.message || 'Try a shorter clip, or use the live camera instead.', [
         { text: 'OK', onPress: () => router.back() },
       ]);
     });
-  }, [uri]);
+  }, [mime, uri]);
 
   const onError = useCallback((message: string) => {
     Alert.alert('Analysis error', message, [{ text: 'OK', onPress: () => router.back() }]);
@@ -97,7 +102,10 @@ export default function AnalyzeVideoScreen() {
   }
 
   return (
-    <View style={[styles.root, { backgroundColor: t.surface.base }]}>
+    <View
+      style={[styles.root, { backgroundColor: t.surface.base, paddingTop: insets.top + Spacing.sm }]}
+    >
+      <Atmosphere />
       <View style={styles.headerRow}>
         <BackButton />
         <Text variant="heading">Analyzing {exercise.name}</Text>

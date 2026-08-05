@@ -48,26 +48,59 @@ export function OnboardingFlow({ onDone }: { onDone: () => void }) {
 
       {step === 0 ? (
         <View style={styles.body}>
-          <View style={[styles.iconBadge, { backgroundColor: t.surface.raised, borderColor: t.ink.hairline }]}>
-            <Ionicons name="heart" size={30} color={t.accent.color} />
+          <View style={[styles.brandPreview, { backgroundColor: t.surface.raised, borderColor: t.ink.hairlineStrong }]}>
+            <View style={[styles.previewTop, { borderBottomColor: t.ink.hairline }]}>
+              <Text variant="label" tone="accent">ISOFORM</Text>
+              <View style={[styles.previewLive, { backgroundColor: `${t.accent.color}18` }]}>
+                <View style={[styles.previewDot, { backgroundColor: t.accent.color }]} />
+                <Text variant="label" tone="accent">LIVE</Text>
+              </View>
+            </View>
+            <View style={styles.previewBody}>
+              <View style={[styles.previewPerson, { borderColor: `${t.accent.color}88` }]}>
+                <View style={[styles.previewHead, { backgroundColor: t.accent.color }]} />
+                <View style={[styles.previewLine, styles.previewShoulders, { backgroundColor: t.accent.color }]} />
+                <View style={[styles.previewLine, styles.previewArm, { backgroundColor: t.accent.color }]} />
+              </View>
+              <View style={styles.previewMetric}>
+                <Text variant="display" tone="accent">12</Text>
+                <Text variant="label" tone="secondary">CLEAN REPS</Text>
+              </View>
+            </View>
           </View>
-          <Text variant="heading" style={{ textAlign: 'center', marginTop: Spacing.lg }}>
-            Welcome to ISOFORM
+          <Text variant="hero" style={{ textAlign: 'center', marginTop: Spacing.lg }}>
+            Train with{`\n`}better feedback.
           </Text>
           <Text tone="secondary" style={{ textAlign: 'center', marginTop: Spacing.md }}>
-            Hey &mdash; I&apos;m a solo dev who built this app. Every feature, every bug fix, every late-night deploy is just me, trying to make something genuinely useful.
+            ISOFORM counts clean reps and helps you build stronger movement patterns — right from your phone.
           </Text>
-          <Text tone="secondary" style={{ textAlign: 'center', marginTop: Spacing.sm }}>
-            If anything doesn&apos;t work right or could be better, please reach out and let me know before leaving a bad review &mdash; I&apos;ll do my best to fix it.
-          </Text>
-          <Text variant="caption" tone="muted" style={{ textAlign: 'center', marginTop: Spacing.lg }}>
-            Thanks for installing. Hope you have some great training sessions.
-          </Text>
+          <View style={styles.promiseList}>
+            {[
+              ['body-outline', 'Real-time rep counting'],
+              ['analytics-outline', 'Form feedback you can act on'],
+              ['shield-checkmark-outline', 'Processing stays on your phone'],
+            ].map(([icon, label]) => (
+              <View key={label} style={styles.promiseRow}>
+                <Ionicons name={icon as keyof typeof Ionicons.glyphMap} size={18} color={t.accent.color} />
+                <Text variant="body" style={{ flex: 1 }}>{label}</Text>
+              </View>
+            ))}
+          </View>
         </View>
       ) : step === 1 ? (
         <View style={styles.body}>
-          <View style={[styles.iconBadge, { backgroundColor: t.surface.raised, borderColor: t.ink.hairline }]}>
-            <Ionicons name="body" size={32} color={t.accent.color} />
+          <View style={[styles.cameraPreview, { backgroundColor: t.surface.raised, borderColor: t.ink.hairlineStrong }]}>
+            <View style={[styles.cameraFrame, { borderColor: `${t.accent.color}99` }]}>
+              <View style={[styles.cameraCorner, styles.cornerTL, { borderColor: t.accent.color }]} />
+              <View style={[styles.cameraCorner, styles.cornerTR, { borderColor: t.accent.color }]} />
+              <View style={[styles.cameraCorner, styles.cornerBL, { borderColor: t.accent.color }]} />
+              <View style={[styles.cameraCorner, styles.cornerBR, { borderColor: t.accent.color }]} />
+              <Ionicons name="body-outline" size={72} color={t.accent.color} />
+            </View>
+            <View style={styles.cameraStatus}>
+              <View style={[styles.previewDot, { backgroundColor: t.accent.color }]} />
+              <Text variant="label" tone="accent">BODY IN FRAME</Text>
+            </View>
           </View>
           <Text variant="hero" style={{ textAlign: 'center', marginTop: Spacing.lg }}>
             Your form coach.{'\n'}Right on your phone.
@@ -160,6 +193,27 @@ const styles = StyleSheet.create({
   body: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: Spacing.md },
   statsBody: { paddingHorizontal: Spacing.md, paddingTop: Spacing.xl },
   statsRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  promiseList: { alignSelf: 'stretch', marginTop: Spacing.xl, gap: Spacing.md },
+  promiseRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md },
+  brandPreview: { width: '100%', maxWidth: 360, borderRadius: Radius.lg, borderWidth: 1, overflow: 'hidden' },
+  previewTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: Spacing.md, borderBottomWidth: 1 },
+  previewLive: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: Spacing.sm, paddingVertical: 6, borderRadius: Radius.pill },
+  previewDot: { width: 7, height: 7, borderRadius: Radius.pill },
+  previewBody: { height: 190, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-around', padding: Spacing.lg },
+  previewPerson: { width: 110, height: 150, borderWidth: 1, borderRadius: Radius.lg, alignItems: 'center', justifyContent: 'center', gap: 8 },
+  previewHead: { width: 28, height: 28, borderRadius: Radius.pill },
+  previewLine: { position: 'absolute', borderRadius: Radius.pill },
+  previewShoulders: { width: 64, height: 8, top: 64 },
+  previewArm: { width: 8, height: 58, top: 70, right: 24, transform: [{ rotate: '-24deg' }] },
+  previewMetric: { alignItems: 'center' },
+  cameraPreview: { width: '100%', maxWidth: 360, height: 230, borderRadius: Radius.lg, borderWidth: 1, alignItems: 'center', justifyContent: 'center', gap: Spacing.md },
+  cameraFrame: { width: 150, height: 165, borderWidth: 1, borderRadius: Radius.md, alignItems: 'center', justifyContent: 'center' },
+  cameraCorner: { position: 'absolute', width: 18, height: 18, borderWidth: 3 },
+  cornerTL: { top: -2, left: -2, borderRightWidth: 0, borderBottomWidth: 0 },
+  cornerTR: { top: -2, right: -2, borderLeftWidth: 0, borderBottomWidth: 0 },
+  cornerBL: { bottom: -2, left: -2, borderRightWidth: 0, borderTopWidth: 0 },
+  cornerBR: { bottom: -2, right: -2, borderLeftWidth: 0, borderTopWidth: 0 },
+  cameraStatus: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   iconBadge: {
     width: 64,
     height: 64,

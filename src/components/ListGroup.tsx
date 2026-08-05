@@ -61,7 +61,7 @@ export function ListRow({ title, subtitle, icon, right, onPress, onLongPress, ch
           {title}
         </Text>
         {subtitle ? (
-          <Text variant="caption" tone="secondary" numberOfLines={1}>
+          <Text variant="caption" tone="secondary" numberOfLines={3}>
             {subtitle}
           </Text>
         ) : null}
@@ -102,14 +102,14 @@ export function SectionLabel({ children }: { children: ReactNode }) {
 
 const styles = StyleSheet.create({
   group: { borderRadius: Radius.md, borderWidth: 1, overflow: 'hidden' },
-  divider: { height: StyleSheet.hairlineWidth, marginLeft: Spacing.md },
+  divider: { height: StyleSheet.hairlineWidth, marginLeft: 56 },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing.sm,
     paddingHorizontal: Spacing.md,
-    paddingVertical: 14,
-    minHeight: 52,
+    paddingVertical: 16,
+    minHeight: 58,
   },
   rowBody: { flex: 1, gap: 2 },
   iconSlot: { width: 22, alignItems: 'center', justifyContent: 'center' },

@@ -8,6 +8,14 @@ import { DEFAULT_ACCENT, type AccentId } from '@/theme/palette';
 
 export type CameraFacing = 'front' | 'back';
 export type WorkoutAlertStyle = 'sound' | 'voice';
+export type ReminderStyle = 'encouraging' | 'direct';
+export type WorkoutReminder = {
+  id: string;
+  weekdays: number[];
+  hour: number;
+  minute: number;
+  style: ReminderStyle;
+};
 
 type SettingsState = {
   /** Speak/vibrate form cues during a set. */
@@ -26,6 +34,18 @@ type SettingsState = {
   cameraFacing: CameraFacing;
   /** How a workout goal is announced when you hit it: a beep, or spoken. */
   workoutAlertStyle: WorkoutAlertStyle;
+  /** Local workout reminder preferences. Weekdays use the notification API's
+   * 1=Sunday..7=Saturday convention. */
+  reminderEnabled: boolean;
+  reminderWeekdays: number[];
+  reminderHour: number;
+  reminderMinute: number;
+  streakReminderEnabled: boolean;
+  reminderStyle: ReminderStyle;
+  reminders: WorkoutReminder[];
+  /** Native review prompts are each attempted at most once per milestone. */
+  reviewPrompted: boolean;
+  premiumReviewPrompted: boolean;
   /** Back up settings/profile/recent history to this Apple ID's iCloud —
    * see src/lib/icloudSync.ts. Off by default: it's a native module that
    * doesn't work until the app has left Expo Go for a real dev-client build. */
@@ -50,6 +70,14 @@ type SettingsState = {
   setCountdownSec: (n: number) => void;
   setCameraFacing: (f: CameraFacing) => void;
   setWorkoutAlertStyle: (s: WorkoutAlertStyle) => void;
+  setReminderEnabled: (on: boolean) => void;
+  setReminderWeekdays: (days: number[]) => void;
+  setReminderTime: (hour: number, minute: number) => void;
+  setStreakReminderEnabled: (on: boolean) => void;
+  setReminderStyle: (style: ReminderStyle) => void;
+  setReminders: (reminders: WorkoutReminder[]) => void;
+  setReviewPrompted: (on: boolean) => void;
+  setPremiumReviewPrompted: (on: boolean) => void;
   setICloudSyncEnabled: (on: boolean) => void;
   setTelemetryOptIn: (on: boolean) => void;
   setTelemetryIncludeVideo: (on: boolean) => void;
@@ -71,6 +99,15 @@ export const useSettings = create<SettingsState>()(
       countdownSec: 3,
       cameraFacing: 'front',
       workoutAlertStyle: 'sound',
+      reminderEnabled: false,
+      reminderWeekdays: [2, 4, 6],
+      reminderHour: 18,
+      reminderMinute: 0,
+      streakReminderEnabled: true,
+      reminderStyle: 'encouraging',
+      reminders: [{ id: 'default', weekdays: [2, 4, 6], hour: 18, minute: 0, style: 'encouraging' }],
+      reviewPrompted: false,
+      premiumReviewPrompted: false,
       iCloudSyncEnabled: false,
       telemetryOptIn: false,
       telemetryIncludeVideo: false,
@@ -85,6 +122,14 @@ export const useSettings = create<SettingsState>()(
       setCountdownSec: (countdownSec) => set({ countdownSec }),
       setCameraFacing: (cameraFacing) => set({ cameraFacing }),
       setWorkoutAlertStyle: (workoutAlertStyle) => set({ workoutAlertStyle }),
+      setReminderEnabled: (reminderEnabled) => set({ reminderEnabled }),
+      setReminderWeekdays: (reminderWeekdays) => set({ reminderWeekdays }),
+      setReminderTime: (reminderHour, reminderMinute) => set({ reminderHour, reminderMinute }),
+      setStreakReminderEnabled: (streakReminderEnabled) => set({ streakReminderEnabled }),
+      setReminderStyle: (reminderStyle) => set({ reminderStyle }),
+      setReminders: (reminders) => set({ reminders }),
+      setReviewPrompted: (reviewPrompted) => set({ reviewPrompted }),
+      setPremiumReviewPrompted: (premiumReviewPrompted) => set({ premiumReviewPrompted }),
       setICloudSyncEnabled: (iCloudSyncEnabled) => set({ iCloudSyncEnabled }),
       setTelemetryOptIn: (telemetryOptIn) => set(telemetryOptIn ? { telemetryOptIn } : { telemetryOptIn, telemetryIncludeVideo: false }),
       setTelemetryIncludeVideo: (telemetryIncludeVideo) => set({ telemetryIncludeVideo }),

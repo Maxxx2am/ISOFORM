@@ -19,7 +19,7 @@ export const ANALYZE_HTML = `<!DOCTYPE html>
 </head>
 <body>
 <div id="wrap">
-  <video id="video" playsinline muted></video>
+  <video id="video" playsinline muted preload="auto"></video>
   <canvas id="overlay"></canvas>
   <div id="status">Waiting for video</div>
 </div>
@@ -101,7 +101,7 @@ export const ANALYZE_HTML = `<!DOCTYPE html>
 
   var landmarker = null, connections = FALLBACK_CONNECTIONS, chunks = [], ready = false;
 
-  window.__push = function(b64){ chunks.push(b64); return true; };
+  window.__push = function(index,b64){ chunks[index] = b64; post({ type:'chunk-ack', index:index }); return true; };
 
   window.__run = function(mime){
     try {
@@ -122,7 +122,10 @@ export const ANALYZE_HTML = `<!DOCTYPE html>
   video.addEventListener('loadedmetadata', function(){
     canvas.width = video.videoWidth; canvas.height = video.videoHeight;
     post({ type:'dims', w: video.videoWidth, h: video.videoHeight, duration: video.duration * 1000 });
+    video.play().catch(function(e){ fail('play', e); });
   });
+  video.addEventListener('loadeddata', function(){ video.play().catch(function(){}); });
+  video.addEventListener('canplay', function(){ video.play().catch(function(){}); });
   video.addEventListener('ended', function(){ post({ type:'done' }); });
 
   async function loadModel(){
@@ -155,7 +158,8 @@ export const ANALYZE_HTML = `<!DOCTYPE html>
   var lastTime = -1;
   function loop(){
     requestAnimationFrame(loop);
-    if (!ready || !landmarker || video.readyState < 2 || video.paused) return;
+     if (!ready || !landmarker || video.readyState < 2) return;
+     if (video.paused && !video.ended) { video.play().catch(function(){}); return; }
     if (video.currentTime === lastTime) return;
     lastTime = video.currentTime;
     var tMs = video.currentTime * 1000;
