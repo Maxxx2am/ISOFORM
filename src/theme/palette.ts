@@ -39,19 +39,19 @@ export function alpha(hex: string, opacity: number): string {
 /** Near-black elevation ramp (ISOMTRIC dark: --bg / --s1 / --s2 / --s3). */
 export const Surface: SurfaceSet = {
   /** True black — app background. */
-  base: '#000000',
+  base: '#070908',
   /** Cards, lists, sheets. */
-  raised: '#111214',
+  raised: '#101512',
   /** Inputs, nested cells. */
-  sunken: '#1A1C1F',
+  sunken: '#0C110E',
   /** Pressed / selected fill. */
-  pressed: '#272A2D',
+  pressed: '#18231C',
 };
 
 export const Ink: InkSet = {
   primary: '#FFFFFF',
-  secondary: '#9A9AA1',
-  muted: '#5E5E66',
+  secondary: '#A7B0AA',
+  muted: '#69756D',
   hairline: 'rgba(255,255,255,0.07)',
   hairlineStrong: 'rgba(255,255,255,0.13)',
 };
@@ -97,10 +97,10 @@ export const Spacing = {
 
 /** Rounded, iOS-like. Cards 20–24, buttons/pills 999, sheets 28. */
 export const Radius = {
-  sm: 14,
+  sm: 10,
   md: 16,
-  lg: 22,
-  sheet: 28,
+  lg: 20,
+  sheet: 26,
   pill: 999,
 } as const;
 
@@ -110,12 +110,12 @@ export const Typography = {
   /** Big timer / metric numerals. */
   display: { fontSize: 56, fontWeight: '800' as const, letterSpacing: -1.5 },
   /** Page title (ISOMTRIC .page-title). */
-  title: { fontSize: 34, fontWeight: '800' as const, letterSpacing: -1, lineHeight: 38 },
+  title: { fontSize: 38, fontWeight: '800' as const, letterSpacing: -1.4, lineHeight: 42 },
   /** Section / card heading. */
-  heading: { fontSize: 20, fontWeight: '700' as const, letterSpacing: -0.4 },
+  heading: { fontSize: 19, fontWeight: '700' as const, letterSpacing: -0.35 },
   /** Hero quote style. */
-  hero: { fontSize: 30, fontWeight: '800' as const, letterSpacing: -0.8, lineHeight: 35 },
-  body: { fontSize: 16, fontWeight: '500' as const },
+  hero: { fontSize: 34, fontWeight: '800' as const, letterSpacing: -1, lineHeight: 38 },
+  body: { fontSize: 15, fontWeight: '500' as const },
   /** Secondary caption (ISOMTRIC .eyebrow). */
   caption: { fontSize: 13, fontWeight: '600' as const, letterSpacing: 0.1 },
   /** Uppercase small-caps label (ISOMTRIC .lbl). */

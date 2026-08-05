@@ -101,7 +101,7 @@ export function SectionLabel({ children }: { children: ReactNode }) {
 }
 
 const styles = StyleSheet.create({
-  group: { borderRadius: Radius.md, borderWidth: 1, overflow: 'hidden' },
+  group: { borderRadius: Radius.md, borderWidth: 0, overflow: 'hidden' },
   divider: { height: StyleSheet.hairlineWidth, marginLeft: 56 },
   row: {
     flexDirection: 'row',

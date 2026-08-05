@@ -101,13 +101,13 @@ export function PrimaryButton({
 const styles = StyleSheet.create({
   base: {
     minHeight: 54,
-    borderRadius: Radius.pill,
+    borderRadius: Radius.md,
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 17,
     paddingHorizontal: Spacing.lg,
   },
-  baseHero: { minHeight: 58, paddingVertical: 17 },
+  baseHero: { minHeight: 58, paddingVertical: 17, borderRadius: Radius.md },
   content: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
 });
