@@ -403,29 +403,33 @@ export function ExerciseTracker({
 
       {/* Top status / mode toggle */}
       <View style={[styles.topBar, { top: insets.top + 12 }]} pointerEvents="box-none">
-        {header ? <View style={styles.stepHeader}>{header}</View> : null}
-        {tracking && (isHold ? live.holdSeconds === 0 && live.attempts === 0 : live.reps === 0) ? (
-          <View style={[styles.scannerStatus, { borderColor: t.ink.hairline }]}>
-            <View style={[styles.scannerDot, { backgroundColor: t.ink.muted }]} />
-            <Text variant="caption" tone="secondary">No reps yet</Text>
-          </View>
-        ) : null}
-        {__DEV__ ? (
-          <Pressable
-            onPress={() => {
-              if (cameraActive) setUseDemo(true);
-              else {
-                setUseDemo(false);
-                setCamError(null);
-                setCamReady(false);
-              }
-            }}
-            style={[styles.chip, { borderColor: t.ink.hairline }]}
-          >
-            <Ionicons name={cameraActive ? 'videocam' : 'flask'} size={13} color={t.ink.secondary} />
-            <Text variant="caption" tone="secondary">{cameraActive ? 'Live camera' : 'Demo mode'} · tap to switch</Text>
-          </Pressable>
-        ) : null}
+        <View style={styles.topLine}>
+          {header ? <View style={styles.stepHeader}>{header}</View> : <View style={{ flex: 1 }} />}
+          {tracking && (isHold ? live.holdSeconds === 0 && live.attempts === 0 : live.reps === 0) ? (
+            <View
+              style={[styles.scannerStatus, { borderColor: t.ink.hairline }]}
+            >
+              <View style={[styles.scannerDot, { backgroundColor: t.ink.muted }]} />
+              <Text variant="caption" tone="secondary">No reps yet</Text>
+            </View>
+          ) : null}
+          {__DEV__ ? (
+            <Pressable
+              onPress={() => {
+                if (cameraActive) setUseDemo(true);
+                else {
+                  setUseDemo(false);
+                  setCamError(null);
+                  setCamReady(false);
+                }
+              }}
+              style={[styles.chip, { borderColor: t.ink.hairline }]}
+            >
+              <Ionicons name={cameraActive ? 'videocam' : 'flask'} size={13} color={t.ink.secondary} />
+              <Text variant="caption" tone="secondary">{cameraActive ? 'Live camera' : 'Demo mode'} · tap to switch</Text>
+            </Pressable>
+          ) : null}
+        </View>
         {camError ? (
           <Text variant="caption" tone="secondary" style={styles.errText}>
             Camera unavailable ({camError}). Showing demo.
@@ -588,7 +592,8 @@ function ReadinessItem({ icon, label }: { icon: keyof typeof Ionicons.glyphMap; 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: Surface.base },
   stage: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: Surface.base },
-  topBar: { position: 'absolute', left: Spacing.lg, right: Spacing.lg, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: Spacing.sm, zIndex: 4 },
+  topBar: { position: 'absolute', left: Spacing.lg, right: Spacing.lg, alignItems: 'stretch', gap: Spacing.sm, zIndex: 4 },
+  topLine: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: Spacing.sm },
   scannerStatus: {
     flexShrink: 1,
     flexDirection: 'row',
