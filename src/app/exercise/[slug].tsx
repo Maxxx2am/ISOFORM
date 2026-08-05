@@ -6,12 +6,13 @@ import { useEffect, useState } from 'react';
 import { Alert, Pressable, StyleSheet, View } from 'react-native';
 import Svg, { Circle, Defs, RadialGradient, Stop } from 'react-native-svg';
 
-import { BackButton } from '@/components/BackButton';
 import { Atmosphere } from '@/components/Atmosphere';
+import { BackButton } from '@/components/BackButton';
 import { GoalPickerSheet } from '@/components/GoalPicker';
 import { ListGroup, ListRow } from '@/components/ListGroup';
 import { LockBadge } from '@/components/LockBadge';
 import { MuscleDiagrams } from '@/components/MuscleDiagrams';
+import { PageHeader } from '@/components/PageHeader';
 import { PlanRows, StreakHook } from '@/components/PaywallOffer';
 import { PrimaryButton } from '@/components/PrimaryButton';
 import { Screen } from '@/components/Screen';
@@ -106,33 +107,22 @@ export default function ExerciseDetailScreen() {
       <Stack.Screen options={{ headerShown: false }} />
       <Atmosphere />
 
-      <View style={styles.headerRow}>
-        <BackButton />
-        <View style={{ flex: 1, gap: 2 }}>
-          <Text variant="label" tone="muted">
-            {exercise.category} · {exercise.family} · {exercise.mode === 'hold' ? 'Hold' : 'Reps'}
-          </Text>
-          <Text variant="title">{exercise.name}</Text>
-        </View>
-        <Pressable
-          hitSlop={8}
-          onPress={() => {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-            favorites.toggle(slug);
-          }}
-          style={({ pressed }) => [
-            styles.favBtn,
-            { backgroundColor: isFav ? `${t.accent.color}18` : t.surface.sunken },
-            pressed && { opacity: 0.7 },
-          ]}
-        >
-          <Ionicons
-            name={isFav ? 'star' : 'star-outline'}
-            size={20}
-            color={isFav ? t.accent.color : t.ink.secondary}
-          />
-        </Pressable>
-      </View>
+      <PageHeader
+        eyebrow={`${exercise.category} · ${exercise.family} · ${exercise.mode === 'hold' ? 'Hold' : 'Reps'}`}
+        title={exercise.name}
+        trailing={(
+          <Pressable
+            hitSlop={8}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+              favorites.toggle(slug);
+            }}
+            style={({ pressed }) => [styles.favBtn, { backgroundColor: isFav ? `${t.accent.color}18` : t.surface.sunken }, pressed && { opacity: 0.7 }]}
+          >
+            <Ionicons name={isFav ? 'star' : 'star-outline'} size={20} color={isFav ? t.accent.color : t.ink.secondary} />
+          </Pressable>
+        )}
+      />
       <Text variant="body" tone="secondary" style={{ marginTop: Spacing.xs }}>
         {exercise.summary}
       </Text>

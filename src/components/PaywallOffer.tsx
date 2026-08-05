@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useEffect, useState } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { Alert, Pressable, StyleSheet, View } from 'react-native';
 
 import { Text } from '@/components/Text';
 import { computeStreakDays } from '@/lib/insights';
@@ -62,7 +62,12 @@ export function PlanRows({ exerciseName, lockedCount }: { exerciseName: string; 
         <Benefit icon="videocam-outline" label="Import a clip for video review" />
         <Benefit icon="trending-up-outline" label="Every progression and future movement" />
       </View>
-      <Pressable style={[styles.buyBtn, styles.buyBtnFeatured, { backgroundColor: Feedback.good, borderColor: Feedback.good }]}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="All Access"
+        onPress={() => Alert.alert('All Access', 'Subscriptions are not available yet. This screen is ready for the final App Store purchase flow.')}
+        style={({ pressed }) => [styles.buyBtn, styles.buyBtnFeatured, { backgroundColor: Feedback.good, borderColor: Feedback.good }, pressed && { opacity: 0.76 }]}
+      >
         <View style={{ flex: 1 }}>
           <Text variant="heading" style={{ color: '#000' }}>
             All Access

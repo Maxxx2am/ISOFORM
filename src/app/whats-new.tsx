@@ -2,8 +2,8 @@ import { Stack } from 'expo-router';
 import { useEffect } from 'react';
 import { ActivityIndicator, View } from 'react-native';
 
-import { BackButton } from '@/components/BackButton';
 import { Atmosphere } from '@/components/Atmosphere';
+import { PageHeader } from '@/components/PageHeader';
 import { Screen } from '@/components/Screen';
 import { Text } from '@/components/Text';
 import { useExerciseRegistry } from '@/exercises/registry';
@@ -27,10 +27,7 @@ export default function WhatsNewScreen() {
     <Screen scroll>
       <Stack.Screen options={{ headerShown: false }} />
       <Atmosphere />
-      <View style={{ paddingTop: Spacing.md, flexDirection: 'row', alignItems: 'center', gap: Spacing.md }}>
-        <BackButton />
-        <Text variant="title">What&apos;s New</Text>
-      </View>
+      <PageHeader eyebrow="ISOFORM" title="What&apos;s new" subtitle="Fresh movement content and product updates." />
 
       {refreshing ? (
         <View style={{ marginTop: Spacing.xl, alignItems: 'center' }}>

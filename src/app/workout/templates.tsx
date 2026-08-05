@@ -3,9 +3,9 @@ import { router, Stack } from 'expo-router';
 import { Alert, Modal, Pressable, StyleSheet, View } from 'react-native';
 import { useState } from 'react';
 
-import { BackButton } from '@/components/BackButton';
 import { Atmosphere } from '@/components/Atmosphere';
 import { ListGroup, ListRow, SectionLabel } from '@/components/ListGroup';
+import { PageHeader } from '@/components/PageHeader';
 import { PlanRows, StreakHook } from '@/components/PaywallOffer';
 import { Screen } from '@/components/Screen';
 import { Text } from '@/components/Text';
@@ -73,16 +73,11 @@ export default function ChooseTemplateScreen() {
       <Screen scroll>
       <Stack.Screen options={{ headerShown: false }} />
       <Atmosphere />
-      <View style={styles.headerRow}>
-        <BackButton />
-        <View style={{ flex: 1 }}>
-          <Text variant="label" tone="muted">WORKOUTS</Text>
-          <Text variant="title">Choose a session</Text>
-        </View>
-      </View>
-      <Text tone="secondary" style={{ marginTop: Spacing.xs }}>
-        Start with a plan, or build a focused session from scratch.
-      </Text>
+      <PageHeader
+        eyebrow="WORKOUTS"
+        title="Choose a session"
+        subtitle="Start with a plan, or build a focused session from scratch."
+      />
 
       <Pressable
         onPress={() => router.push('/workout/builder')}

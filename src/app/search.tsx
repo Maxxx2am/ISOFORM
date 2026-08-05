@@ -4,9 +4,9 @@ import { useDeferredValue, useEffect, useMemo, useState } from 'react';
 import { Modal, Pressable, StyleSheet, TextInput, View } from 'react-native';
 
 import { Atmosphere } from '@/components/Atmosphere';
-import { BackButton } from '@/components/BackButton';
 import { ListGroup, ListRow, SectionLabel } from '@/components/ListGroup';
 import { LockBadge } from '@/components/LockBadge';
+import { PageHeader } from '@/components/PageHeader';
 import { PlanRows, StreakHook } from '@/components/PaywallOffer';
 import { Screen } from '@/components/Screen';
 import { Text } from '@/components/Text';
@@ -132,17 +132,11 @@ export default function SearchScreen() {
   return (
     <Screen scroll>
       <Atmosphere />
-      <View style={styles.header}>
-        <BackButton />
-        <View style={{ flex: 1 }}>
-          <Text variant="label" tone="muted">MOVEMENT LIBRARY</Text>
-          <Text variant="title">Find your next move</Text>
-        </View>
-      </View>
-
-      <Text tone="secondary" style={{ marginTop: Spacing.xs }}>
-        Browse by goal, body area, or the movement you want to improve.
-      </Text>
+      <PageHeader
+        eyebrow="MOVEMENT LIBRARY"
+        title="Find your next move"
+        subtitle="Browse by goal, body area, or the movement you want to improve."
+      />
 
       <View style={[styles.search, { backgroundColor: t.surface.raised, borderColor: t.ink.hairline }]}>
         <Ionicons name="search" size={17} color={t.ink.muted} />

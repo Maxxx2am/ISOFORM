@@ -9,10 +9,10 @@ import * as Sharing from 'expo-sharing';
 import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Linking, Platform, Pressable, ScrollView, Share, StyleSheet, Switch, View } from 'react-native';
 
-import { BackButton } from '@/components/BackButton';
 import { Atmosphere } from '@/components/Atmosphere';
 import { BodyStatsFields } from '@/components/BodyStatsFields';
 import { ListGroup, ListRow, SectionLabel } from '@/components/ListGroup';
+import { PageHeader } from '@/components/PageHeader';
 import { Screen } from '@/components/Screen';
 import { Segmented } from '@/components/Segmented';
 import { Text } from '@/components/Text';
@@ -229,13 +229,7 @@ export default function SettingsScreen() {
     <Screen scroll ref={scrollRef}>
       <Stack.Screen options={{ headerShown: false }} />
       <Atmosphere />
-      <View style={styles.headerRow}>
-        <BackButton />
-        <View style={{ flex: 1 }}>
-          <Text variant="label" tone="muted">PERSONALIZE</Text>
-          <Text variant="title">Your setup</Text>
-        </View>
-      </View>
+      <PageHeader eyebrow="PERSONALIZE" title="Your setup" subtitle="Tune the camera, coaching, reminders, and personal data behind your feedback." />
 
       <View style={[styles.settingsIntro, { backgroundColor: t.surface.raised, borderColor: t.ink.hairlineStrong }]}>
         <View style={[styles.settingsIntroIcon, { backgroundColor: `${t.accent.color}18` }]}>
@@ -243,9 +237,7 @@ export default function SettingsScreen() {
         </View>
         <View style={{ flex: 1 }}>
           <Text variant="heading">Make training feel like yours</Text>
-          <Text variant="caption" tone="secondary" style={{ marginTop: Spacing.xs }}>
-            Tune the camera, coaching, reminders, and personal data behind your feedback.
-          </Text>
+          <Text variant="caption" tone="secondary" style={{ marginTop: Spacing.xs }}>A few calm controls for your practice.</Text>
         </View>
       </View>
 

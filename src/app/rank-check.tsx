@@ -3,10 +3,11 @@ import { Stack } from 'expo-router';
 import { useMemo, useState } from 'react';
 import { Image, Modal, Pressable, StyleSheet, TextInput, View } from 'react-native';
 
-import { BackButton } from '@/components/BackButton';
 import { Atmosphere } from '@/components/Atmosphere';
+import { BackButton } from '@/components/BackButton';
 import { Confetti } from '@/components/Confetti';
 import { ListGroup, ListRow, SectionLabel } from '@/components/ListGroup';
+import { PageHeader } from '@/components/PageHeader';
 import { PlanRows, StreakHook } from '@/components/PaywallOffer';
 import { PrimaryButton } from '@/components/PrimaryButton';
 import { Screen } from '@/components/Screen';
@@ -72,13 +73,11 @@ export default function RankCheckScreen() {
     <Screen scroll>
       <Stack.Screen options={{ headerShown: false }} />
       <Atmosphere />
-      <View style={styles.headerRow}>
-        <BackButton />
-        <Text variant="title">Check a rank</Text>
-      </View>
-      <Text tone="secondary" style={{ marginTop: Spacing.xs }}>
-        Enter someone&apos;s stats and a number — no camera or account needed.
-      </Text>
+      <PageHeader
+        eyebrow="RANK LAB"
+        title="Check a rank"
+        subtitle="Enter someone&apos;s stats and a number — no camera or account needed."
+      />
 
       <View style={{ marginTop: Spacing.lg }}>
         <SectionLabel>Exercise</SectionLabel>
