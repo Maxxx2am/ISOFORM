@@ -63,5 +63,12 @@
     "lint": "expo lint",
     "postinstall": "patch-package"
   },
-  "private": true
+  "private": true,
+  "expo": {
+    "doctor": {
+      "reactNativeDirectoryCheck": {
+        "exclude": ["expo-icloud-storage"]
+      }
+    }
+  }
 }
