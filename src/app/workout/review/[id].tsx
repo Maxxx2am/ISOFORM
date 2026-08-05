@@ -911,7 +911,7 @@ function MotionCoachCard({ summary, previousBest, formTrend }: { summary: Sessio
         </Text>
       </View>
       <Text variant="caption" tone="muted" style={{ marginTop: Spacing.xs }}>Built from your landmarks, angles, reps, tempo, and form history</Text>
-      <Text variant="label" tone="muted" style={styles.aiSectionLabel}>WHAT WENT WELL</Text>
+      <Text variant="label" tone="muted" style={styles.aiSectionLabel}>COACH&apos;S READ</Text>
       <View style={{ gap: Spacing.sm }}>
         {wins.map((item) => (
           <View key={item} style={styles.adviceRow}>
@@ -922,7 +922,7 @@ function MotionCoachCard({ summary, previousBest, formTrend }: { summary: Sessio
       </View>
       {advice.length > 0 ? (
         <>
-          <Text variant="label" tone="muted" style={styles.aiSectionLabel}>WORK ON NEXT</Text>
+          <Text variant="label" tone="muted" style={styles.aiSectionLabel}>NEXT FOCUS</Text>
           <View style={{ gap: Spacing.sm }}>
             {advice.slice(0, 3).map((item) => (
               <View key={item} style={styles.adviceRow}>

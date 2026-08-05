@@ -348,13 +348,13 @@ export function coachNotes(summary: SessionSummary, context?: { previousBest?: n
   const score = scoreSession(summary);
   const quality = summary.formQuality ?? summary.consistencyScore ?? summary.depthScore ?? score;
   const wins: string[] = [];
-  if (beatRecord) wins.push(`You set a new best at ${currentValue}${summary.mode === 'hold' ? ' seconds' : ' reps'}.`);
-  if (score >= 80) wins.push('Your overall movement quality was strong for this session.');
-  if (summary.depthScore != null && summary.depthScore >= 80) wins.push('You reached the target range with control.');
-  if (summary.consistencyScore != null && summary.consistencyScore >= 80) wins.push('Your repetitions stayed consistent from start to finish.');
-  if (summary.mode === 'reps' && summary.avgRepSeconds != null && summary.avgRepSeconds >= 1.2) wins.push('Your tempo gave each repetition enough control.');
-  if (summary.mode === 'hold' && summary.formQuality != null && summary.formQuality >= 80) wins.push('You held a stable shape through the attempt.');
-  if (wins.length === 0) wins.push('You completed the session and created a useful baseline to improve from.');
+  if (beatRecord) wins.push(`New best: ${currentValue}${summary.mode === 'hold' ? ' seconds' : ' reps'}. That is real progress.`);
+  if (score >= 80) wins.push('That was strong work. Your overall movement quality is coming together.');
+  if (summary.depthScore != null && summary.depthScore >= 80) wins.push('You found the target range. Keep that same control next time.');
+  if (summary.consistencyScore != null && summary.consistencyScore >= 80) wins.push('Your reps looked consistent from the first one to the last.');
+  if (summary.mode === 'reps' && summary.avgRepSeconds != null && summary.avgRepSeconds >= 1.2) wins.push('Good tempo. You gave yourself enough time to own each rep.');
+  if (summary.mode === 'hold' && summary.formQuality != null && summary.formQuality >= 80) wins.push('You held a solid shape. That is the quality we want before adding time.');
+  if (wins.length === 0) wins.push('Good start. You finished the work, and now we have something useful to build on.');
 
   const volume = summary.mode === 'hold' ? summary.holdSeconds : summary.reps;
   const consistentEnough = summary.consistencyScore == null || summary.consistencyScore >= 75;
@@ -362,18 +362,18 @@ export function coachNotes(summary: SessionSummary, context?: { previousBest?: n
   const progression = next ? { name: next.name, ready } : null;
   const nextStep = next
     ? ready
-      ? `You have enough quality and volume to start testing ${next.name}. Keep the first attempts conservative.`
-      : `Repeat ${ex?.name ?? 'this movement'} until your quality is more consistent before testing ${next.name}.`
-    : 'Keep building clean volume and use the trends here to choose your next target.';
+      ? `You have earned a careful test of ${next.name}. Start easy and make the first few reps look clean.`
+      : `Stay with ${ex?.name ?? 'this movement'} for now. Make the reps more consistent, then we will test ${next.name}.`
+    : 'Keep stacking clean sessions. We will use your trend to pick the next target.';
   const verdict = beatRecord
-    ? 'A new personal best — great work.'
+     ? 'New personal best. That is the kind of progress we want.'
     : score >= 90
-      ? 'Excellent set — this is dialed in.'
+      ? 'Excellent set. You were in control from start to finish.'
       : score >= 80
-        ? 'Strong work. A couple of small tweaks and this is perfect.'
+        ? 'Strong work. There is one more layer of control to clean up.'
         : score >= 55
-          ? 'Solid effort — here’s where to sharpen it.'
-          : 'Good start — let’s clean up the fundamentals.';
+          ? 'Solid effort. Here is the one thing I would sharpen next.'
+          : 'Good start. Let us clean up the fundamentals one step at a time.';
 
   const natural = (text: string) => text.replace(/\s+[—–-]\s+/g, ', ');
   return { verdict: natural(verdict), wins: wins.slice(0, 3).map(natural), advice: advice.slice(0, 5).map(natural), nextStep: natural(nextStep), progression };
