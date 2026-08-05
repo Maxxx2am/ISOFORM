@@ -241,16 +241,19 @@ export default function SettingsScreen() {
         </View>
       </View>
 
-      {__DEV__ ? <View style={{ marginTop: Spacing.lg }}>
-        <SectionLabel>App access</SectionLabel>
-         <ListGroup>
-             <ListRow
-             title="All Access"
-             subtitle={sub.hasAllAccess ? 'Enabled — every exercise is unlocked' : 'Testing switch — unlock every exercise'}
-             right={<Toggle value={sub.hasAllAccess} onChange={(v) => (v ? sub.grantAllAccess() : sub.revokeAllAccess())} />}
-             />
-         </ListGroup>
-       </View> : null}
+      <View style={{ marginTop: Spacing.lg }}>
+        <SectionLabel>Testing access</SectionLabel>
+        <ListGroup>
+          <ListRow
+            title="All Access"
+            subtitle={sub.hasAllAccess ? 'On — every exercise is unlocked' : 'Off — only the free exercise is available'}
+            right={<Toggle value={sub.hasAllAccess} onChange={(v) => (v ? sub.grantAllAccess() : sub.revokeAllAccess())} />}
+          />
+        </ListGroup>
+        <Text variant="caption" tone="muted" style={{ marginTop: Spacing.xs, marginLeft: 4 }}>
+          Testing control only. App Store purchases are not connected yet.
+        </Text>
+      </View>
 
       <View style={{ marginTop: Spacing.lg }}>
         <SectionLabel>Reminders</SectionLabel>
