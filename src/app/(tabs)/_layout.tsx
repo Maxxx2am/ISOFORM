@@ -94,7 +94,6 @@ export default function TabsLayout() {
 
 function FloatingTabBar({ state, navigation }: BottomTabBarProps) {
   const pathname = usePathname();
-  const t = useTheme();
   const insets = useSafeAreaInsets();
   const isTabRoute = pathname === '/' || pathname === '/insights';
   if (!isTabRoute) return null;
@@ -102,43 +101,21 @@ function FloatingTabBar({ state, navigation }: BottomTabBarProps) {
   const bottom = Math.max(Spacing.lg, insets.bottom + Spacing.xs);
 
   return (
-    <View style={{ position: 'absolute', left: Spacing.lg, right: Spacing.lg, bottom, flexDirection: 'row', gap: Spacing.sm }}>
-      {/* Shadow lives on this OUTER view — a rounded child with
-          overflow:'hidden' (needed to clip the blur to the pill shape) would
-          clip the shadow itself right along with it if they were the same
-          view. */}
-      <View style={{ flex: 1, height: 64, borderRadius: Radius.pill, ...tabBarShadow }}>
-        <View
-          style={{
-            flex: 1,
-            flexDirection: 'row',
-            borderRadius: Radius.pill,
-            overflow: 'hidden',
-            borderWidth: 1,
-            borderColor: t.ink.hairline,
-          }}
-        >
-          <BlurTint />
-          {/* No paddingHorizontal here — each TabButton below already insets
-              itself by 4 on all four sides (its own `padding: 4`), so adding
-              MORE padding here only stacked on the two outer edges (left of
-              Train, right of Profile), making them sit further in than the
-              top/bottom edges do. Letting the tab's own padding be the only
-              inset keeps all four sides even. */}
-          {state.routes.map((route, index) => {
-            const meta = TAB_META[route.name];
-            if (!meta) return null;
-            const focused = pathname === `/${route.name}` || (route.name === 'index' && pathname === '/');
-            const onPress = () => {
-              const event = navigation.emit({ type: 'tabPress', target: route.key, canPreventDefault: true });
-              if (!focused && !event.defaultPrevented) navigation.navigate(route.name);
-            };
-            return <TabButton key={route.key} meta={meta} focused={focused} onPress={onPress} />;
-          })}
-        </View>
+    <View style={{ position: 'absolute', left: Spacing.lg, right: Spacing.lg, bottom, ...tabBarShadow }}>
+      <View style={styles.dockSurface}>
+        <BlurTint />
+        {state.routes.map((route) => {
+          const meta = TAB_META[route.name];
+          if (!meta) return null;
+          const focused = pathname === `/${route.name}` || (route.name === 'index' && pathname === '/');
+          const onPress = () => {
+            const event = navigation.emit({ type: 'tabPress', target: route.key, canPreventDefault: true });
+            if (!focused && !event.defaultPrevented) navigation.navigate(route.name);
+          };
+          return <TabButton key={route.key} meta={meta} focused={focused} onPress={onPress} />;
+        })}
+        <SearchButton />
       </View>
-
-      <SearchButton />
     </View>
   );
 }
@@ -200,11 +177,11 @@ function SearchButton() {
       accessibilityRole="button"
       accessibilityLabel="Search"
     >
-      <Animated.View style={{ width: 64, height: 64, borderRadius: Radius.pill, ...tabBarShadow, transform: [{ scale }] }}>
+      <Animated.View style={{ width: 58, height: 58, borderRadius: Radius.md, transform: [{ scale }] }}>
         <View
           style={{
             flex: 1,
-            borderRadius: Radius.pill,
+            borderRadius: Radius.md,
             overflow: 'hidden',
             borderWidth: 1,
             borderColor: t.ink.hairline,
@@ -219,3 +196,16 @@ function SearchButton() {
     </Pressable>
   );
 }
+
+const styles = StyleSheet.create({
+  dockSurface: {
+    height: 70,
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: Radius.lg,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+    padding: 4,
+  },
+});
