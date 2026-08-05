@@ -3,6 +3,7 @@ import * as Haptics from 'expo-haptics';
 import { router } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { ActivityIndicator, AppState, Pressable, StyleSheet, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { CircularTimer } from '@/components/CircularTimer';
 import { QualityGauge } from '@/components/QualityGauge';
@@ -63,6 +64,7 @@ export function ExerciseTracker({
   onPrimaryAction: (result: ExerciseTrackerResult) => void;
 }) {
   const t = useTheme();
+  const insets = useSafeAreaInsets();
   const { mirrorFrontCamera, repHaptics, repDing, countdownSec, cameraFacing, workoutAlertStyle } =
     useSettings();
 
@@ -389,7 +391,7 @@ export function ExerciseTracker({
         )}
       </View>
 
-      {!showCamLoader && phase !== 'processing' ? (
+      {!showCamLoader && phase === 'setup' ? (
         <View pointerEvents="none" style={styles.frameGuide}>
           <View style={styles.frameGuideTop} />
           <View style={styles.frameGuideBottom} />
@@ -400,7 +402,7 @@ export function ExerciseTracker({
       ) : null}
 
       {/* Top status / mode toggle */}
-      <View style={styles.topBar} pointerEvents="box-none">
+      <View style={[styles.topBar, { top: insets.top + 12 }]} pointerEvents="box-none">
         {header ? <View style={styles.stepHeader}>{header}</View> : null}
         {tracking && (isHold ? live.holdSeconds === 0 && live.attempts === 0 : live.reps === 0) ? (
           <View style={[styles.scannerStatus, { borderColor: t.ink.hairline }]}>
@@ -496,9 +498,9 @@ export function ExerciseTracker({
       ) : null}
 
       {/* HUD — only while tracking */}
-      {tracking ? (
-        <View style={styles.hud} pointerEvents="box-none">
-          <View style={styles.timerWrap}>
+        {tracking ? (
+          <View style={styles.hud} pointerEvents="box-none">
+          <View style={[styles.timerWrap, { top: insets.top + 68 }]}>
             <CircularTimer
               label={formatClock(isHold ? live.holdSeconds * 1000 : elapsed)}
               sublabel={exercise.name}
@@ -507,7 +509,9 @@ export function ExerciseTracker({
             />
           </View>
 
-          <View style={[styles.metric, { backgroundColor: 'rgba(0,0,0,0.58)', borderColor: t.ink.hairline }]}>
+          <View
+            style={[styles.metric, { bottom: insets.bottom + 88, backgroundColor: 'rgba(0,0,0,0.72)', borderColor: t.ink.hairline }]}
+          >
             <Text variant="display" tone="accent">
               {metricValue}
             </Text>
@@ -546,7 +550,7 @@ export function ExerciseTracker({
 
           <Pressable
             onPress={onPrimaryPress}
-            style={[styles.stop, { borderColor: t.ink.hairline }]}
+            style={[styles.stop, { bottom: insets.bottom + 12, borderColor: t.ink.hairline }]}
           >
             <Ionicons name={primaryActionIcon} size={22} color={t.ink.primary} />
             <Text variant="heading">{primaryActionLabel}</Text>
@@ -564,7 +568,7 @@ export function ExerciseTracker({
 
       {/* Cancel while setting up */}
       {phase === 'setup' && !showCamLoader ? (
-        <Pressable onPress={() => router.back()} style={styles.cancel}>
+        <Pressable onPress={() => router.back()} style={[styles.cancel, { bottom: insets.bottom + 18 }]}>
           <Text tone="secondary">Cancel</Text>
         </Pressable>
       ) : null}
@@ -584,7 +588,7 @@ function ReadinessItem({ icon, label }: { icon: keyof typeof Ionicons.glyphMap; 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: Surface.base },
   stage: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: Surface.base },
-  topBar: { position: 'absolute', top: 96, left: Spacing.lg, right: Spacing.lg, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: Spacing.sm, zIndex: 4 },
+  topBar: { position: 'absolute', left: Spacing.lg, right: Spacing.lg, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: Spacing.sm, zIndex: 4 },
   scannerStatus: {
     flexShrink: 1,
     flexDirection: 'row',
@@ -597,7 +601,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.52)',
   },
   scannerDot: { width: 7, height: 7, borderRadius: 4 },
-  stepHeader: { position: 'absolute', left: 0, paddingHorizontal: Spacing.lg, marginBottom: 2 },
+  stepHeader: { flexShrink: 1, marginRight: Spacing.sm, marginBottom: 2 },
   chip: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -617,8 +621,8 @@ const styles = StyleSheet.create({
   readinessItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   count: { fontSize: 120, fontWeight: '800', color: '#FFFFFF', fontVariant: ['tabular-nums'] },
   hud: { flex: 1, justifyContent: 'flex-end', alignItems: 'center', paddingBottom: Spacing.xxl, gap: Spacing.lg },
-  timerWrap: { position: 'absolute', top: 118, left: 0, right: 0, alignItems: 'center' },
-  metric: { position: 'absolute', bottom: 92, minWidth: 136, alignItems: 'center', paddingHorizontal: Spacing.md, paddingVertical: 8, borderWidth: 1, borderRadius: Radius.md },
+  timerWrap: { position: 'absolute', left: 0, right: 0, alignItems: 'center' },
+  metric: { position: 'absolute', minWidth: 136, maxWidth: 220, alignItems: 'center', paddingHorizontal: Spacing.md, paddingVertical: 8, borderWidth: 1, borderRadius: Radius.md },
   goalPill: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -654,11 +658,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     backgroundColor: 'rgba(255,255,255,0.04)',
     position: 'absolute',
-    bottom: 20,
     alignSelf: 'center',
   },
-  cancel: { position: 'absolute', bottom: Spacing.xl, alignSelf: 'center', padding: Spacing.md },
-  warnBanner: { position: 'absolute', top: 320, left: Spacing.lg, right: Spacing.lg, alignItems: 'center' },
+  cancel: { position: 'absolute', alignSelf: 'center', padding: Spacing.md },
+  warnBanner: { position: 'absolute', top: '38%', left: Spacing.lg, right: Spacing.lg, alignItems: 'center' },
   warnPill: {
     flexDirection: 'row',
     alignItems: 'center',
